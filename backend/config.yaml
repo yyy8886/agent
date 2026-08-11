@@ -1,0 +1,31 @@
+app:
+  active_model: openai_proxy       # 当前使用的模型，切换改这里即可
+
+models:
+  openai_proxy:                    # API 中转站 — GPT-5.5 走代理
+    provider: openai
+    model: gpt-5.5
+    base_url: https://sapi.nyro.lol/v1
+    temperature: 0.2
+    timeout_seconds: 60
+    max_retries: 2
+
+  deepseek_chat:                   # DeepSeek V3（通用对话）
+    provider: deepseek
+    model: deepseek-chat
+    temperature: 0.2
+    timeout_seconds: 60
+    max_retries: 2
+
+  openai_gpt:                      # OpenAI 直连
+    provider: openai
+    model: gpt-5.6-sol
+    temperature: 0.2
+    timeout_seconds: 60
+    max_retries: 2
+
+  ollama_local:                    # 本地 Ollama
+    provider: ollama
+    model: qwen3:8b
+    base_url: http://127.0.0.1:11434
+    temperature: 0.2

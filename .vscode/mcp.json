@@ -1,0 +1,11 @@
+{
+  "servers": {
+    "lesson-tools": {
+      "type": "stdio",
+      "command": "${workspaceFolder}/backend/.venv/Scripts/python.exe",
+      "args": [
+        "${workspaceFolder}/backend/lecture/L6/mcp_server.py"
+      ]
+    }
+  }
+}

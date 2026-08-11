@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "desktop-ai-backend"
+version = "0.1.0"
+description = "Python backend for the desktop AI assistant learning project"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "langchain",
+    "langchain-deepseek",
+    "langchain-ollama",
+    "langchain-openai",
+    "langchain-mcp-adapters",
+    "mcp[cli]",
+    "python-dotenv",
+    "pyyaml",
+]
+
+[tool.setuptools]
+packages = []

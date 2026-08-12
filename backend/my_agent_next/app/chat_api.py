@@ -15,12 +15,12 @@
 
 import uuid
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from .agent_profile_repository import AgentProfileRepository
 from .chat_repository import ChatRepository
-from .chat_service import ChatService
+from .chat_service import ChatService, set_tool_decision
 
 router = APIRouter(prefix="/api/chat")
 repo = ChatRepository()
@@ -66,7 +66,7 @@ def get_thread(thread_id: str):
 # ── 对话（SSE 流式）─────────────────────────────────────────────────────────
 
 @router.post("/threads/{thread_id}/messages")
-async def send_message(thread_id: str, payload: dict):
+async def send_message(thread_id: str, payload: dict, request: Request):
     content = str(payload.get("content", "")).strip()
     if not content:
         raise HTTPException(400, "消息不能为空。")
@@ -82,8 +82,27 @@ async def send_message(thread_id: str, payload: dict):
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
+    # 读取权限模式（请求头或 payload）
+    permission_mode = (
+        request.headers.get("X-Permission-Mode", "")
+        or str(payload.get("permission_mode", ""))
+        or "manual"
+    )
+
     return StreamingResponse(
-        service.stream_chat(thread["agent_id"], thread_id, content, profile),
+        service.stream_chat(thread["agent_id"], thread_id, content, profile,
+                           permission_mode=permission_mode),
         media_type="text/event-stream",
         headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
     )
+
+
+@router.post("/threads/{thread_id}/tool-response")
+def tool_response(thread_id: str, payload: dict):
+    """手动模式下，用户对工具调用确认的响应。"""
+    confirm_id = str(payload.get("confirm_id", "")).strip()
+    allowed = bool(payload.get("allowed", False))
+    if not confirm_id:
+        raise HTTPException(400, "confirm_id 不能为空。")
+    set_tool_decision(thread_id, confirm_id, allowed)
+    return {"status": "ok"}

@@ -36,17 +36,9 @@ class AgentProfileService:
 
     @staticmethod
     def available_skills() -> list[dict]:
-        """返回所有已使用过的 Skill 名称，供前端建议。
-
-        注意：my_agent_next 的 Skill 目前只是字符串标签——还没有像 my_agent
-        那样的 skill_manager / SKILL.md 执行引擎。这里从已有 Agent 的 skills
-        字段中汇总出所有出现过的名称，省去重复输入。后续实现 Skill 引擎后，
-        会改为从 registry.json 动态读取。"""
-        seen: set[str] = set()
-        for agent in AgentProfileRepository().list():
-            for skill in agent.skills:
-                seen.add(skill)
-        return [{"name": name} for name in sorted(seen)]
+        """从 skills/ 目录扫描所有 SKILL.md，返回 {name, description}。"""
+        from my_agent_next.skills._loader import available_skill_choices
+        return available_skill_choices()
 
     @staticmethod
     def model_options() -> list[dict]:

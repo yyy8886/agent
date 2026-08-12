@@ -271,6 +271,24 @@ index.html — My Agent Next 管理中心
   }
   .empty-state h3 { font-size: 1.1rem; margin-bottom: 8px; color: var(--text); }
 
+  /* Permission toggle */
+  .perm-btn {
+    padding: 3px 12px; border-radius: 999px; border: 1px solid var(--border);
+    background: transparent; color: var(--text-dim); font-size: .72rem;
+    font-weight: 700; cursor: pointer; transition: all .15s;
+  }
+  .perm-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .perm-btn:hover:not(.active) { border-color: var(--accent); color: var(--accent); }
+
+  /* Tool call bubble in chat */
+  .tool-call-msg {
+    margin: 4px 0; padding: 6px 12px; border-radius: var(--radius-sm);
+    font-size: .75rem; font-family: monospace; background: rgba(251,191,36,.08);
+    border: 1px solid rgba(251,191,36,.2); color: var(--warning);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .tool-call-msg.confirming { background: rgba(244,71,113,.08); border-color: rgba(244,71,113,.2); color: var(--danger); }
+
   @media (max-width: 500px) {
     body { padding: 14px; }
     .cards-grid { grid-template-columns: 1fr; }
@@ -299,6 +317,7 @@ index.html — My Agent Next 管理中心
     <button class="tab active" onclick="switchTab('profiles')">🔌 API 配置</button>
     <button class="tab" onclick="switchTab('agents')">🤖 Agent 管理</button>
     <button class="tab" onclick="switchTab('workspace')">💬 工作台</button>
+    <button class="tab" onclick="switchTab('marketplace')">🛒 Skill 市场</button>
   </div>
 
   <!-- ── API 配置页 ─────────────────────────────────────────────────────────── -->
@@ -317,6 +336,35 @@ index.html — My Agent Next 管理中心
     </div>
   </div>
 
+  <!-- ── Skill 市场 ──────────────────────────────────────────────────────────── -->
+  <div id="tab-marketplace" class="tab-content">
+    <div style="display:flex;gap:12px;margin-bottom:16px;align-items:center">
+      <input id="mpSearch" placeholder="搜索 Skill..." style="flex:1;padding:8px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);background:#11131c;color:var(--text);font-size:.9rem"
+        onkeydown="if(event.key==='Enter') mpSearch()">
+      <select id="mpSource" style="padding:8px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);background:#11131c;color:var(--text);font-size:.85rem">
+        <option value="all">全部来源</option><option value="clawhub">ClawHub</option><option value="skillsmp">SkillsMP</option>
+      </select>
+      <select id="mpSort" style="padding:8px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);background:#11131c;color:var(--text);font-size:.85rem">
+        <option value="trending">最热</option><option value="relevance">关联度最高</option>
+      </select>
+      <button class="btn btn-primary btn-sm" onclick="mpSearch()">搜索</button>
+    </div>
+    <div id="mpResults" class="cards-grid"></div>
+    <div id="mpEmpty" class="empty-state hidden"><h3>搜索 Skill 市场</h3><p>输入关键词搜索 ClawHub 和 SkillsMP 上的 Skill。</p></div>
+  </div>
+
+  <!-- ── 工具确认弹窗 ────────────────────────────────────────────────────────── -->
+  <div class="modal-overlay hidden" id="modalToolConfirm">
+    <div class="modal" style="max-width:460px">
+      <h2 id="toolConfirmTitle">工具调用确认</h2>
+      <div id="toolConfirmBody" style="margin-bottom:16px;font-size:.85rem;line-height:1.6"></div>
+      <div class="form-actions">
+        <button class="btn btn-danger btn-sm" onclick="toolConfirmRespond(false)">拒绝</button>
+        <button class="btn btn-primary btn-sm" onclick="toolConfirmRespond(true)">允许</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ── 工作台 ─────────────────────────────────────────────────────────────── -->
   <div id="tab-workspace" class="tab-content">
     <div class="workspace">
@@ -326,6 +374,13 @@ index.html — My Agent Next 管理中心
           <div style="flex:1">
             <label>选择 Agent</label>
             <select id="wsAgentSelect" onchange="workspaceOnAgentChange()"><option value="">-- 请选择 --</option></select>
+          </div>
+        </div>
+        <div class="ws-sidebar-section" style="display:flex;align-items:center;gap:8px">
+          <label style="font-size:.7rem;font-weight:700;color:var(--text-dim);text-transform:uppercase">权限模式</label>
+          <div style="display:flex;gap:4px;margin-top:4px">
+            <button class="perm-btn active" id="permManual" onclick="setPermissionMode('manual')">手动</button>
+            <button class="perm-btn" id="permAuto" onclick="setPermissionMode('auto')">自动</button>
           </div>
         </div>
         <div class="ws-thread-list" id="wsThreadList">
@@ -422,13 +477,13 @@ index.html — My Agent Next 管理中心
 // 工具函数
 // ═════════════════════════════════════════════════════════════════════════════
 const $ = (s) => document.querySelector(s);
-function esc(s) { return (s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function esc(s) { return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 标签页切换
 // ═════════════════════════════════════════════════════════════════════════════
 let currentTab = "profiles";
-const TAB_INDEX = { profiles: 0, agents: 1, workspace: 2 };
+const TAB_INDEX = { profiles: 0, agents: 1, workspace: 2, marketplace: 3 };
 function switchTab(tab) {
   currentTab = tab;
   document.querySelectorAll(".tab").forEach((t,i) => t.classList.toggle("active", i === TAB_INDEX[tab]));
@@ -438,6 +493,7 @@ function switchTab(tab) {
   document.getElementById("btnNewAgent").style.display = tab==="agents"?"":"none";
   document.getElementById("btnNewThread").style.display = tab==="workspace"?"":"none";
   if (tab === "workspace") workspaceInit();
+  if (tab === "marketplace" && !mpHasSearched) mpSearch("");
 }
 window.switchTab = switchTab;
 
@@ -752,6 +808,167 @@ window.deleteAgent = deleteAgent;
 $("#modalAgent").addEventListener("click", e => { if (e.target === $("#modalAgent")) closeAgentModal(); });
 
 // ═════════════════════════════════════════════════════════════════════════════
+// ============== 权限模式 ==============
+// ═════════════════════════════════════════════════════════════════════════════
+let wsPermissionMode = localStorage.getItem("wsPermissionMode") || "manual";
+
+function setPermissionMode(mode) {
+  wsPermissionMode = mode;
+  localStorage.setItem("wsPermissionMode", mode);
+  document.getElementById("permManual").classList.toggle("active", mode === "manual");
+  document.getElementById("permAuto").classList.toggle("active", mode === "auto");
+}
+window.setPermissionMode = setPermissionMode;
+
+// 初始化权限按钮状态
+setPermissionMode(wsPermissionMode);
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ============== 工具确认弹窗 ==============
+// ═════════════════════════════════════════════════════════════════════════════
+let pendingConfirmId = null;
+let pendingThreadId = null;
+
+function toolConfirmRespond(allowed) {
+  document.getElementById("modalToolConfirm").classList.add("hidden");
+  if (!pendingConfirmId || !pendingThreadId) return;
+  fetch(`/api/chat/threads/${pendingThreadId}/tool-response`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirm_id: pendingConfirmId, allowed }),
+  }).catch(() => {});
+  pendingConfirmId = null;
+  pendingThreadId = null;
+}
+window.toolConfirmRespond = toolConfirmRespond;
+
+function showToolConfirm(threadId, confirmId, toolName, toolArgs, dangerous) {
+  pendingConfirmId = confirmId;
+  pendingThreadId = threadId;
+  document.getElementById("toolConfirmTitle").textContent = dangerous
+    ? "⚠ 危险操作确认" : "工具调用确认";
+  const argsStr = JSON.stringify(toolArgs, null, 2);
+  document.getElementById("toolConfirmBody").innerHTML = `
+    <div style="margin-bottom:8px"><strong>工具：</strong>${esc(toolName)}</div>
+    <div style="background:#11131c;border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;font-family:monospace;font-size:.78rem;white-space:pre-wrap;max-height:200px;overflow-y:auto">${esc(argsStr)}</div>
+    ${dangerous ? '<div style="margin-top:8px;color:var(--danger);font-weight:600">此命令可能具有破坏性，请仔细检查！</div>' : ""}
+  `;
+  document.getElementById("modalToolConfirm").classList.remove("hidden");
+}
+
+// 点击遮罩关闭
+document.getElementById("modalToolConfirm").addEventListener("click", function(e) {
+  if (e.target === this) toolConfirmRespond(false);
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ============== Skill 市场 ==============
+// ═════════════════════════════════════════════════════════════════════════════
+let mpHasSearched = false;
+
+async function mpSearch(query) {
+  const q = query || document.getElementById("mpSearch").value.trim();
+  const source = document.getElementById("mpSource").value || "all";
+  const sort = document.getElementById("mpSort").value || "trending";
+  mpHasSearched = true;
+
+  const grid = document.getElementById("mpResults");
+  const empty = document.getElementById("mpEmpty");
+  grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--text-dim)">搜索中…</div>';
+  empty.classList.add("hidden");
+
+  try {
+    const params = new URLSearchParams({ q, source, page: "1", sort });
+    const res = await fetch(`/api/marketplace/search?${params}`);
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    const items = data.items || [];
+
+    if (!items.length) {
+      grid.innerHTML = "";
+      empty.classList.remove("hidden");
+      empty.querySelector("p").textContent = `未找到与 "${esc(q)}" 相关的 Skill。`;
+      return;
+    }
+
+    empty.classList.add("hidden");
+    grid.innerHTML = items.map(item => mpCard(item)).join("");
+  } catch (e) {
+    grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--danger)">搜索失败: ${esc(e.message)}</div>`;
+  }
+}
+window.mpSearch = mpSearch;
+
+function mpCard(item) {
+  const sourceLabel = item.source === "clawhub" ? "ClawHub" : "SkillsMP";
+  const sourceColor = item.source === "clawhub" ? "var(--accent)" : "var(--success)";
+  const downloads = item.downloads ? `⭐ ${item.downloads}` : "";
+  const githubUrl = encodeURIComponent(item.github_url || "");
+  const actionBtn = item.installed
+    ? '<span style="color:var(--success);font-size:.8rem;font-weight:600">✓ 已安装</span>'
+    : `<button class="btn btn-ghost btn-sm" onclick="mpPreview('${esc(item.source)}','${esc(item.slug)}','${githubUrl}')">预览</button>
+       <button class="btn btn-primary btn-sm" onclick="mpInstall('${esc(item.source)}','${esc(item.slug)}','${esc(item.name)}','${githubUrl}')">安装</button>`;
+
+  return `<div class="card">
+    <div class="card-header">
+      <div>
+        <div class="card-title">${esc(item.name)}</div>
+        <div class="card-id" style="color:${sourceColor};font-weight:600">${sourceLabel} ${downloads}</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <p style="line-height:1.5">${esc(item.description || "暂无描述")}</p>
+      ${item.author ? `<div style="margin-top:4px;font-size:.75rem">作者: ${esc(item.author)}</div>` : ""}
+    </div>
+    <div class="card-actions">${actionBtn}</div>
+  </div>`;
+}
+
+async function mpPreview(source, slug, githubUrl) {
+  try {
+    const url = githubUrl
+      ? `/api/marketplace/skill/${source}/${slug}?url=${githubUrl}`
+      : `/api/marketplace/skill/${source}/${slug}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error((await res.json()).detail || "获取失败");
+    const data = await res.json();
+    const preview = data.content || data.description || "无内容";
+    // 简单弹窗预览
+    const w = window.open("", "_blank", "width=700,height=500");
+    if (w) {
+      w.document.write(`<pre style="padding:20px;font-family:monospace;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word">${esc(preview)}</pre>`);
+    } else {
+      alert("预览内容:\n\n" + preview.substring(0, 1000));
+    }
+  } catch (e) {
+    toast("预览失败: " + e.message, "error");
+  }
+}
+window.mpPreview = mpPreview;
+
+async function mpInstall(source, slug, name, githubUrl) {
+  if (!confirm(`确定安装 "${name || slug}"？`)) return;
+  try {
+    const body = githubUrl ? { source, slug, github_url: decodeURIComponent(githubUrl) } : { source, slug };
+    const res = await fetch("/api/marketplace/install", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || "安装失败");
+    const data = await res.json();
+    toast(`✓ ${data.name} 已安装到 skills/${data.name}/`, "success");
+    // 刷新搜索结果以更新已安装状态
+    mpSearch(document.getElementById("mpSearch").value.trim());
+    // 也刷新 Agent 页的 Skill 列表
+    loadAgents();
+  } catch (e) {
+    toast("安装失败: " + e.message, "error");
+  }
+}
+window.mpInstall = mpInstall;
+
+// ═════════════════════════════════════════════════════════════════════════════
 // ============== 工作台 ==============
 // ═════════════════════════════════════════════════════════════════════════════
 let wsThreads = [];
@@ -895,7 +1112,7 @@ async function workspaceSend() {
   $("#wsMessages").innerHTML += workspaceMsgHTML({role:"user", content});
   $("#wsMessages").scrollTop = $("#wsMessages").scrollHeight;
 
-  // 不在 SSE 返回前创建气泡——等第一个 token 到了再画
+  // 不在 SSE 返回前创建气泡——等第一个 token 或 tool_call 到了再画
   const aiBubbleId = "ws-" + Date.now();
   const agentName = _wsAgents.find(a => a.id === ($("#wsAgentSelect").value))?.name || "AI";
   let bubbleCreated = false;
@@ -911,8 +1128,12 @@ async function workspaceSend() {
 
   try {
     const res = await fetch(`/api/chat/threads/${wsActiveThreadId}/messages`, {
-      method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({content}),
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Permission-Mode": wsPermissionMode,
+      },
+      body: JSON.stringify({ content, permission_mode: wsPermissionMode }),
     });
 
     if (!res.ok) {
@@ -931,21 +1152,45 @@ async function workspaceSend() {
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
       for (const line of lines) {
-        if (line.startsWith("data: ")) {
-          try {
-            const data = JSON.parse(line.slice(6));
-            if (data.token) {
-              ensureBubble();
-              document.querySelector(`#${aiBubbleId} .ws-msg-bubble`).textContent += data.token;
-              $("#wsMessages").scrollTop = $("#wsMessages").scrollHeight;
-            } else if (data.done) {
-              // 流结束
-            } else if (data.error) {
-              ensureBubble();
-              document.querySelector(`#${aiBubbleId} .ws-msg-bubble`).textContent += `\n[错误: ${data.error}]`;
-            }
-          } catch(e) {}
-        }
+        if (!line.startsWith("data: ")) continue;
+        try {
+          const data = JSON.parse(line.slice(6));
+
+          if (data.event === "tool_call") {
+            ensureBubble();
+            const d = data.data;
+            const bubble = document.querySelector(`#${aiBubbleId} .ws-msg-bubble`);
+            bubble.innerHTML += `<div class="tool-call-msg">🔧 ${esc(d.name)}</div>`;
+            $("#wsMessages").scrollTop = $("#wsMessages").scrollHeight;
+          }
+          else if (data.event === "tool_result") {
+            const d = data.data;
+            const bubble = document.querySelector(`#${aiBubbleId} .ws-msg-bubble`);
+            const resultPreview = (d.result || "").substring(0, 200);
+            const color = d.allowed === false ? "var(--danger)" : "var(--success)";
+            bubble.innerHTML += `<div class="tool-call-msg" style="color:${color}">${d.allowed === false ? '✘' : '✔'} ${esc(d.name)}: ${esc(resultPreview)}</div>`;
+            $("#wsMessages").scrollTop = $("#wsMessages").scrollHeight;
+          }
+          else if (data.event === "tool_confirm") {
+            const d = data.data;
+            // 显示确认弹窗
+            showToolConfirm(wsActiveThreadId, d.confirm_id, d.name, d.args, d.dangerous);
+          }
+          else if (data.token) {
+            ensureBubble();
+            const bubble = document.querySelector(`#${aiBubbleId} .ws-msg-bubble`);
+            bubble.innerHTML += esc(data.token);
+            $("#wsMessages").scrollTop = $("#wsMessages").scrollHeight;
+          }
+          else if (data.done) {
+            // 流结束
+          }
+          else if (data.error) {
+            ensureBubble();
+            const bubble = document.querySelector(`#${aiBubbleId} .ws-msg-bubble`);
+            bubble.innerHTML += `<br/>[错误: ${esc(data.error)}]`;
+          }
+        } catch(e) {}
       }
     }
   } catch(e) {

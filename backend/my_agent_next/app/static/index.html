@@ -1,0 +1,654 @@
+<!--
+index.html — My Agent Next 管理中心
+=============================================================================
+管理 API 配置（Profile）和 Agent 配置，纯静态单页面（SPA）。
+
+功能标签页：
+  1. API 配置 — 管理模型连接（provider / model / Key），含测速
+  2. Agent 管理 — 管理 Agent（角色设定 / 绑定模型 / 分配 Skill）
+
+与后端的关系：
+  浏览器 → web_server.py (FastAPI)
+  /api/profiles/*  → API 配置 CRUD + 测速
+  /api/agents/*    → Agent CRUD
+  /api/skills      → 可用 Skill 列表
+  /api/model-options → 可选模型列表
+-->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Agent Next — 管理中心</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card-bg: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e1e4eb;
+    --text-dim: #8b8fa3;
+    --accent: #6c8cff;
+    --accent-hover: #8ba3ff;
+    --danger: #f44771;
+    --success: #34d399;
+    --warning: #fbbf24;
+    --radius: 10px;
+    --radius-sm: 6px;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 24px;
+  }
+  .container { max-width: 1100px; margin: 0 auto; }
+
+  /* Header */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 28px; flex-wrap: wrap; gap: 12px;
+  }
+  h1 { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.02em; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 2px; margin-bottom: 28px; border-bottom: 2px solid var(--border); }
+  .tab {
+    padding: 10px 24px; font-size: 0.9rem; font-weight: 600; cursor: pointer;
+    border: none; background: none; color: var(--text-dim);
+    border-bottom: 2px solid transparent; margin-bottom: -2px;
+    transition: color .15s, border-color .15s;
+  }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab:hover { color: var(--text); }
+
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 18px; border-radius: var(--radius-sm); border: none;
+    cursor: pointer; font-size: 0.875rem; font-weight: 600;
+    transition: background .15s, opacity .15s;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-sm { padding: 4px 12px; font-size: 0.8rem; }
+  .btn-danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+  .btn-danger:hover { background: var(--danger); color: #fff; }
+  .btn-ghost { background: transparent; color: var(--accent); border: 1px solid var(--border); }
+  .btn-ghost:hover { background: var(--border); }
+
+  /* Cards */
+  .cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    position: relative;
+    transition: border-color .15s;
+  }
+  .card:hover { border-color: #3a3e50; }
+  .card.default { border-color: var(--accent); }
+  .card.disabled { opacity: 0.55; }
+
+  .card-header {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .card-title { font-size: 1.05rem; font-weight: 700; }
+  .card-id { font-size: 0.75rem; color: var(--text-dim); font-family: monospace; margin-top: 2px; }
+
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 999px;
+    font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .badge-default { background: var(--accent); color: #fff; }
+  .badge-disabled { background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
+
+  .card-body { font-size: 0.85rem; line-height: 1.7; color: var(--text-dim); }
+  .card-body span { font-weight: 600; color: var(--text); }
+  .field-row { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 6px; }
+  .field-row > div { flex: 1; min-width: 80px; }
+
+  .card-actions { display: flex; gap: 6px; margin-top: 16px; flex-wrap: wrap; }
+
+  /* Agent card extras */
+  .persona-preview {
+    margin-top: 8px; padding: 8px 12px; background: #11131c; border-radius: var(--radius-sm);
+    font-size: 0.8rem; color: var(--text-dim); line-height: 1.5;
+    max-height: 80px; overflow: hidden; position: relative;
+  }
+  .persona-preview::after {
+    content: ""; position: absolute; bottom: 0; left: 0; right: 0; height: 24px;
+    background: linear-gradient(transparent, #11131c);
+  }
+  .skill-tag {
+    display: inline-block; padding: 1px 8px; margin: 2px 4px 2px 0;
+    border-radius: 999px; font-size: 0.7rem; font-weight: 600;
+    background: rgba(108,140,255,.15); color: var(--accent);
+  }
+  .skill-tag-empty { color: var(--text-dim); font-size: 0.78rem; }
+
+  /* Speed test */
+  .speed-result {
+    margin-top: 12px; padding: 10px 14px; border-radius: var(--radius-sm);
+    font-size: 0.83rem; font-weight: 600;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .speed-success { background: rgba(52,211,153,.12); color: var(--success); }
+  .speed-fail { background: rgba(244,71,113,.12); color: var(--danger); }
+  .speed-running { background: rgba(251,191,36,.12); color: var(--warning); }
+  .speed-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .speed-success .speed-dot { background: var(--success); }
+  .speed-fail .speed-dot { background: var(--danger); }
+  .speed-running .speed-dot { background: var(--warning); animation: pulse .8s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+  /* Modal */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.7);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100; padding: 20px;
+  }
+  .modal-overlay.hidden { display: none; }
+  .modal {
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 28px; width: 100%; max-width: 540px; max-height: 90vh; overflow-y: auto;
+  }
+  .modal h2 { font-size: 1.2rem; margin-bottom: 20px; }
+  .form-group { margin-bottom: 16px; }
+  .form-group label {
+    display: block; font-size: 0.8rem; font-weight: 600;
+    color: var(--text-dim); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .form-group input, .form-group select, .form-group textarea {
+    width: 100%; padding: 8px 12px; border-radius: var(--radius-sm);
+    border: 1px solid var(--border); background: #11131c; color: var(--text);
+    font-size: 0.9rem; font-family: inherit;
+  }
+  .form-group textarea { resize: vertical; min-height: 80px; }
+  .form-group input:focus, .form-group select:focus, .form-group textarea:focus { outline: none; border-color: var(--accent); }
+  .form-row { display: flex; gap: 12px; }
+  .form-row .form-group { flex: 1; }
+  .form-check {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+    font-size: 0.85rem; cursor: pointer;
+  }
+  .form-check input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); }
+  .form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+
+  /* Skill checkboxes grid */
+  .skill-checkboxes {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 4px; max-height: 200px; overflow-y: auto;
+    padding: 8px; background: #11131c; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  }
+
+  /* Toast */
+  .toast {
+    position: fixed; top: 20px; right: 20px; z-index: 200;
+    padding: 12px 20px; border-radius: var(--radius-sm);
+    font-size: 0.85rem; font-weight: 600;
+    animation: slideIn .2s ease;
+  }
+  .toast-error { background: var(--danger); color: #fff; }
+  .toast-success { background: var(--success); color: #000; }
+  @keyframes slideIn { from { transform: translateX(60px); opacity: 0 } to { transform: none; opacity: 1 } }
+
+  .empty-state { text-align: center; padding: 60px 20px; color: var(--text-dim); }
+  .empty-state h3 { font-size: 1.1rem; margin-bottom: 8px; color: var(--text); }
+
+  @media (max-width: 500px) {
+    body { padding: 14px; }
+    .cards-grid { grid-template-columns: 1fr; }
+    .form-row { flex-direction: column; gap: 0; }
+    header { flex-direction: column; align-items: flex-start; }
+    .skill-checkboxes { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div>
+      <h1>⚡ My Agent Next</h1>
+      <p style="color:var(--text-dim);font-size:.85rem;margin-top:4px">API Profile 管理 &amp; Agent 配置</p>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-primary" id="btnNewProfile" onclick="openAddModal()">+ 新建 API 配置</button>
+      <button class="btn btn-primary" id="btnNewAgent" onclick="openAgentAddModal()" style="display:none">+ 新建 Agent</button>
+    </div>
+  </header>
+
+  <!-- ── 标签页 ─────────────────────────────────────────────────────────────── -->
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('profiles')">🔌 API 配置</button>
+    <button class="tab" onclick="switchTab('agents')">🤖 Agent 管理</button>
+  </div>
+
+  <!-- ── API 配置页 ─────────────────────────────────────────────────────────── -->
+  <div id="tab-profiles" class="tab-content active">
+    <div id="profiles" class="cards-grid"></div>
+    <div id="empty-profiles" class="empty-state hidden">
+      <h3>还没有 API 配置</h3><p>点击「新建 API 配置」添加模型连接。</p>
+    </div>
+  </div>
+
+  <!-- ── Agent 管理页 ───────────────────────────────────────────────────────── -->
+  <div id="tab-agents" class="tab-content">
+    <div id="agents" class="cards-grid"></div>
+    <div id="empty-agents" class="empty-state hidden">
+      <h3>还没有 Agent</h3><p>点击「新建 Agent」创建第一个智能体。</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     API Profile 编辑弹窗
+     ═════════════════════════════════════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="modalProfile">
+  <div class="modal">
+    <h2 id="profileModalTitle">新建 API 配置</h2>
+    <form id="profileForm" onsubmit="submitProfileForm(event)">
+      <input type="hidden" id="formIsEdit">
+      <div class="form-group"><label>配置 ID（唯一标识）</label><input id="formId" required placeholder="例如 deepseek_chat" pattern="[a-z][a-z0-9_-]{1,50}"></div>
+      <div class="form-group"><label>显示名称</label><input id="formName" required placeholder="例如 DeepSeek Chat"></div>
+      <div class="form-row">
+        <div class="form-group"><label>Provider</label><select id="formProvider" onchange="onProviderChange()"><option value="openai">OpenAI / 兼容代理</option><option value="deepseek">DeepSeek</option><option value="ollama">Ollama</option></select></div>
+        <div class="form-group"><label>模型名称</label><input id="formModel" required placeholder="例如 deepseek-chat"></div>
+      </div>
+      <div class="form-group"><label>Base URL</label><input id="formBaseUrl" placeholder="留空使用 provider 默认地址"></div>
+      <div class="form-group" id="apiKeyEnvGroup"><label>API Key 环境变量名</label><input id="formApiKeyEnv" placeholder="例如 DEEPSEEK_API_KEY" pattern="[A-Z][A-Z0-9_]*"></div>
+      <div class="form-row">
+        <div class="form-group"><label>Temperature</label><input id="formTemperature" type="number" value="0.2" step="0.1" min="0" max="2"></div>
+        <div class="form-group"><label>Timeout（秒）</label><input id="formTimeout" type="number" value="60" min="1" max="600"></div>
+        <div class="form-group"><label>Max Retries</label><input id="formMaxRetries" type="number" value="2" min="0" max="10"></div>
+      </div>
+      <div class="form-check"><input type="checkbox" id="formEnabled" checked><label for="formEnabled">启用</label></div>
+      <div class="form-check"><input type="checkbox" id="formIsDefault"><label for="formIsDefault">设为默认</label></div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-ghost" onclick="closeProfileModal()">取消</button>
+        <button type="submit" class="btn btn-primary">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     Agent 编辑弹窗
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="modalAgent">
+  <div class="modal">
+    <h2 id="agentModalTitle">新建 Agent</h2>
+    <form id="agentForm" onsubmit="submitAgentForm(event)">
+      <input type="hidden" id="agentFormIsEdit">
+      <div class="form-group"><label>Agent ID（唯一标识）</label><input id="agentFormId" required placeholder="例如 mabel" pattern="[a-z][a-z0-9_-]{1,40}"></div>
+      <div class="form-group"><label>显示名称</label><input id="agentFormName" required placeholder="例如 梅贝尔"></div>
+      <div class="form-group"><label>角色描述</label><input id="agentFormRole" placeholder="例如 陪伴者与最终输出"></div>
+      <div class="form-group"><label>绑定模型</label><select id="agentFormModel"></select>
+      <div style="font-size:.75rem;color:var(--text-dim);margin-top:4px">留空则自动使用默认 API 配置</div></div>
+      <div class="form-group"><label>Persona / 系统提示词</label><textarea id="agentFormPersona" placeholder="直接传给 LLM 的 system prompt，定义 Agent 的语气、风格和行为规则。"></textarea></div>
+      <div class="form-group">
+        <label>可用 Skill</label>
+        <div style="display:flex;gap:6px;margin-bottom:8px">
+          <input id="skillInput" placeholder="输入 Skill 名称后回车添加" style="flex:1"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();addSkillTag()}">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="addSkillTag()">添加</button>
+        </div>
+        <div id="skillTags" style="display:flex;flex-wrap:wrap;gap:4px;min-height:28px"></div>
+        <div id="skillSuggestions" style="margin-top:8px;font-size:.75rem;color:var(--text-dim)"></div>
+      </div>
+      <div class="form-check"><input type="checkbox" id="agentFormEnabled" checked><label for="agentFormEnabled">启用</label></div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-ghost" onclick="closeAgentModal()">取消</button>
+        <button type="submit" class="btn btn-primary">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+// ═════════════════════════════════════════════════════════════════════════════
+// 工具函数
+// ═════════════════════════════════════════════════════════════════════════════
+const $ = (s) => document.querySelector(s);
+function esc(s) { return (s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 标签页切换
+// ═════════════════════════════════════════════════════════════════════════════
+let currentTab = "profiles";
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll(".tab").forEach((t,i) => t.classList.toggle("active", i === (tab==="profiles"?0:1)));
+  document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
+  document.getElementById("tab-"+tab).classList.add("active");
+  document.getElementById("btnNewProfile").style.display = tab==="profiles"?"":"none";
+  document.getElementById("btnNewAgent").style.display = tab==="agents"?"":"none";
+}
+window.switchTab = switchTab;
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Toast
+// ═════════════════════════════════════════════════════════════════════════════
+function toast(msg, type) {
+  const el = document.createElement("div");
+  el.className = `toast toast-${type}`;
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ============== API Profile ==============
+// ═════════════════════════════════════════════════════════════════════════════
+let profiles = [];
+
+async function loadProfiles() {
+  try {
+    const res = await fetch("/api/profiles");
+    if (!res.ok) throw new Error(await res.text());
+    profiles = await res.json();
+    renderProfiles();
+  } catch(e) { toast("加载 API 配置失败: "+e.message, "error"); }
+}
+window.loadProfiles = loadProfiles;
+
+function renderProfiles() {
+  const grid = $("#profiles"), empty = $("#empty-profiles");
+  if (!profiles.length) { grid.innerHTML=""; empty.classList.remove("hidden"); return; }
+  empty.classList.add("hidden");
+  grid.innerHTML = profiles.map(p => profileCard(p)).join("");
+}
+
+function profileCard(p) {
+  const db = p.is_default ? '<span class="badge badge-default">默认</span>' : "";
+  const dd = !p.enabled ? '<span class="badge badge-disabled">已停用</span>' : "";
+  const ks = p.provider==="ollama"?'<span style="color:var(--success)">无需 Key</span>':
+    (p.api_key_configured?'<span style="color:var(--success)">Key 已配置</span>':'<span style="color:var(--warning)">Key 未配置</span>');
+  const env = p.provider!=="ollama"?`<div><span>环境变量：</span>${esc(p.api_key_env||"未设置")}</div>`:"";
+  return `<div class="card${p.is_default?" default":""}${!p.enabled?" disabled":""}">
+    <div class="card-header"><div><div class="card-title">${esc(p.name)}${db}${dd}</div><div class="card-id">${esc(p.id)}</div></div></div>
+    <div class="card-body">
+      <div class="field-row"><div><span>Provider：</span>${esc(p.provider)}</div><div><span>Model：</span>${esc(p.model)}</div></div>
+      ${p.base_url?`<div style="margin-top:4px"><span>URL：</span><code style="font-size:.78rem">${esc(p.base_url)}</code></div>`:""}
+      ${env}
+      <div class="field-row" style="margin-top:8px"><div><span>Temp：</span>${p.temperature}</div><div><span>Timeout：</span>${p.timeout_seconds}s</div><div><span>Retry：</span>${p.max_retries}</div></div>
+      <div style="margin-top:6px">${ks}</div>
+    </div>
+    <div class="card-actions">
+      <button class="btn btn-ghost btn-sm" onclick="speedTest('${p.id}')">⚡ 测速</button>
+      ${!p.is_default?`<button class="btn btn-ghost btn-sm" onclick="setDefault('${p.id}')">⭐ 设默认</button>`:""}
+      <button class="btn btn-ghost btn-sm" onclick="openEditModal('${p.id}')">✏️ 编辑</button>
+      ${!p.is_default?`<button class="btn btn-danger btn-sm" onclick="deleteProfile('${p.id}')">🗑 删除</button>`:""}
+    </div>
+    <div id="speed-${p.id}"></div>
+  </div>`;
+}
+
+// Profile modal
+function openAddModal() {
+  $("#profileModalTitle").textContent="新建 API 配置"; $("#formIsEdit").value=""; $("#formId").disabled=false;
+  $("#formId").value=""; $("#formName").value=""; $("#formProvider").value="openai"; $("#formModel").value="";
+  $("#formBaseUrl").value=""; $("#formApiKeyEnv").value=""; $("#formTemperature").value="0.2";
+  $("#formTimeout").value="60"; $("#formMaxRetries").value="2"; $("#formEnabled").checked=true; $("#formIsDefault").checked=false;
+  onProviderChange(); $("#modalProfile").classList.remove("hidden");
+}
+window.openAddModal = openAddModal;
+
+function openEditModal(id) {
+  const p = profiles.find(x=>x.id===id); if(!p) return;
+  $("#profileModalTitle").textContent=`编辑 ${p.id}`; $("#formIsEdit").value=p.id; $("#formId").value=p.id; $("#formId").disabled=true;
+  $("#formName").value=p.name; $("#formProvider").value=p.provider; $("#formModel").value=p.model;
+  $("#formBaseUrl").value=p.base_url||""; $("#formApiKeyEnv").value=p.api_key_env||"";
+  $("#formTemperature").value=p.temperature; $("#formTimeout").value=p.timeout_seconds;
+  $("#formMaxRetries").value=p.max_retries; $("#formEnabled").checked=p.enabled; $("#formIsDefault").checked=p.is_default;
+  onProviderChange(); $("#modalProfile").classList.remove("hidden");
+}
+window.openEditModal = openEditModal;
+
+function closeProfileModal() { $("#modalProfile").classList.add("hidden"); }
+window.closeProfileModal = closeProfileModal;
+
+function onProviderChange() {
+  const g = $("#apiKeyEnvGroup"), pv = $("#formProvider").value;
+  g.style.display = pv==="ollama"?"none":"block";
+  if(pv==="ollama") $("#formApiKeyEnv").removeAttribute("required");
+  else $("#formApiKeyEnv").setAttribute("required","");
+}
+window.onProviderChange = onProviderChange;
+
+async function submitProfileForm(e) {
+  e.preventDefault();
+  const p = {
+    id:$("#formId").value.trim(), name:$("#formName").value.trim(), provider:$("#formProvider").value,
+    model:$("#formModel").value.trim(), base_url:$("#formBaseUrl").value.trim(),
+    temperature:parseFloat($("#formTemperature").value)||0.2, timeout_seconds:parseInt($("#formTimeout").value)||60,
+    max_retries:parseInt($("#formMaxRetries").value)||2, enabled:$("#formEnabled").checked, is_default:$("#formIsDefault").checked,
+  };
+  if($("#formProvider").value!=="ollama") p.api_key_env=$("#formApiKeyEnv").value.trim();
+  try {
+    const r = await fetch("/api/profiles",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(p)});
+    if(!r.ok){const e=await r.json();throw new Error(e.detail);}
+    closeProfileModal(); await loadProfiles(); toast(`已保存 ${p.id}`,"success");
+  } catch(e){toast(e.message,"error");}
+}
+window.submitProfileForm = submitProfileForm;
+
+async function deleteProfile(id) {
+  if(!confirm(`确定删除 "${id}"？`)) return;
+  try {
+    const r = await fetch(`/api/profiles/${id}`,{method:"DELETE"});
+    if(!r.ok){const e=await r.json();throw new Error(e.detail);}
+    await loadProfiles(); toast(`已删除 ${id}`,"success");
+  } catch(e){toast(e.message,"error");}
+}
+window.deleteProfile = deleteProfile;
+
+async function setDefault(id) {
+  try {
+    await fetch(`/api/profiles/${id}/set-default`,{method:"POST"});
+    await loadProfiles(); toast(`已将 ${id} 设为默认`,"success");
+  } catch(e){toast("操作失败","error");}
+}
+window.setDefault = setDefault;
+
+async function speedTest(id) {
+  const el = $(`#speed-${id}`); el.innerHTML = '<div class="speed-result speed-running"><span class="speed-dot"></span>测速中…</div>';
+  try {
+    const r = await fetch(`/api/profiles/${id}/speed-test`,{method:"POST"}); const d = await r.json();
+    if(d.success) el.innerHTML=`<div class="speed-result speed-success"><span class="speed-dot"></span>✔ ${d.latency_ms}ms — ${esc(d.response_preview||"")}</div>`;
+    else el.innerHTML=`<div class="speed-result speed-fail"><span class="speed-dot"></span>✘ 失败 (${d.latency_ms}ms)：${esc(d.error||"未知错误")}</div>`;
+  } catch(e){ el.innerHTML=`<div class="speed-result speed-fail"><span class="speed-dot"></span>✘ ${esc(e.message)}</div>`; }
+}
+window.speedTest = speedTest;
+
+$("#modalProfile").addEventListener("click", e => { if(e.target===$("#modalProfile")) closeProfileModal(); });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ============== Agent ==============
+// ═════════════════════════════════════════════════════════════════════════════
+let agents = [];
+let allSkills = [];
+let modelOptions = [];
+
+async function loadAgents() {
+  try {
+    const [aRes, sRes, mRes] = await Promise.all([
+      fetch("/api/agents"), fetch("/api/skills"), fetch("/api/model-options")
+    ]);
+    if (!aRes.ok) throw new Error(await aRes.text());
+    agents = await aRes.json();
+    allSkills = await sRes.json();
+    modelOptions = await mRes.json();
+    renderAgents();
+    populateSkillSuggestions();
+    populateModelSelect();
+  } catch(e) { toast("加载 Agent 失败: "+e.message, "error"); }
+}
+window.loadAgents = loadAgents;
+
+function renderAgents() {
+  const grid = $("#agents"), empty = $("#empty-agents");
+  if (!agents.length) { grid.innerHTML=""; empty.classList.remove("hidden"); return; }
+  empty.classList.add("hidden");
+  grid.innerHTML = agents.map(a => agentCard(a)).join("");
+}
+
+function agentCard(a) {
+  const dd = !a.enabled ? '<span class="badge badge-disabled">已停用</span>' : "";
+  const skillsHtml = a.skills.length
+    ? a.skills.map(s => `<span class="skill-tag">${esc(s)}</span>`).join("")
+    : '<span class="skill-tag-empty">无 Skill</span>';
+  const modelInfo = a.model_profile_id
+    ? (() => { const m = modelOptions.find(x=>x.id===a.model_profile_id); return m ? `${esc(m.name)} (${esc(m.model)})` : esc(a.model_profile_id); })()
+    : '<span style="color:var(--text-dim)">使用默认配置</span>';
+  return `<div class="card${!a.enabled?" disabled":""}">
+    <div class="card-header"><div><div class="card-title">${esc(a.name)}${dd}</div><div class="card-id">${esc(a.id)}${a.role?" · "+esc(a.role):""}</div></div></div>
+    <div class="card-body">
+      <div><span>模型：</span>${modelInfo}</div>
+      <div style="margin-top:6px"><span>Skill：</span>${skillsHtml}</div>
+      ${a.persona?`<div class="persona-preview">${esc(a.persona)}</div>`:""}
+    </div>
+    <div class="card-actions">
+      <button class="btn btn-ghost btn-sm" onclick="openAgentEditModal('${a.id}')">✏️ 编辑</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteAgent('${a.id}')">🗑 删除</button>
+    </div>
+  </div>`;
+}
+
+// Agent modal — Skills (tag input)
+let agentSkillTags = [];
+
+function populateSkillSuggestions() {
+  const container = $("#skillSuggestions");
+  const existing = agentSkillTags.map(t => t.toLowerCase());
+  const suggestions = allSkills.filter(s => !existing.includes(s.name.toLowerCase()));
+  if (!suggestions.length) { container.innerHTML = ""; return; }
+  container.innerHTML = '<span style="font-weight:600">已有 Skill：</span>' +
+    suggestions.map(s => `<span style="cursor:pointer;color:var(--accent);margin:0 4px" onclick="addSkillFromSuggestion('${esc(s.name)}')">+${esc(s.name)}</span>`).join("");
+}
+
+function addSkillTag(name) {
+  name = (name || $("#skillInput").value.trim());
+  if (!name) return;
+  if (agentSkillTags.includes(name)) { $("#skillInput").value=""; return; }
+  agentSkillTags.push(name);
+  renderSkillTags();
+  $("#skillInput").value = "";
+  populateSkillSuggestions();
+}
+window.addSkillTag = addSkillTag;
+
+function addSkillFromSuggestion(name) {
+  if (!agentSkillTags.includes(name)) {
+    agentSkillTags.push(name);
+    renderSkillTags();
+    populateSkillSuggestions();
+  }
+}
+window.addSkillFromSuggestion = addSkillFromSuggestion;
+
+function removeSkillTag(name) {
+  agentSkillTags = agentSkillTags.filter(t => t !== name);
+  renderSkillTags();
+  populateSkillSuggestions();
+}
+window.removeSkillTag = removeSkillTag;
+
+function renderSkillTags() {
+  const container = $("#skillTags");
+  container.innerHTML = agentSkillTags.map(t =>
+    `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:999px;font-size:.78rem;font-weight:600;background:rgba(108,140,255,.15);color:var(--accent)">
+      ${esc(t)}<span style="cursor:pointer;opacity:.7" onclick="removeSkillTag('${esc(t)}')">&times;</span>
+    </span>`
+  ).join("");
+}
+
+function setAgentSkillTags(skills) {
+  agentSkillTags = [...skills];
+  renderSkillTags();
+  populateSkillSuggestions();
+
+function populateModelSelect() {
+  const sel = $("#agentFormModel");
+  sel.innerHTML = '<option value="">使用默认配置</option>' + modelOptions.map(m =>
+    `<option value="${esc(m.id)}">${esc(m.name)} — ${esc(m.provider)} / ${esc(m.model)}</option>`
+  ).join("");
+}
+
+function getAgentSkills() {
+  return [...agentSkillTags];
+}
+
+function openAgentAddModal() {
+  $("#agentModalTitle").textContent = "新建 Agent";
+  $("#agentFormIsEdit").value = "";
+  $("#agentFormId").value = ""; $("#agentFormId").disabled = false;
+  $("#agentFormName").value = ""; $("#agentFormRole").value = "";
+  $("#agentFormPersona").value = ""; $("#agentFormModel").value = "";
+  $("#agentFormEnabled").checked = true;
+  setAgentSkillTags([]);
+  $("#modalAgent").classList.remove("hidden");
+}
+window.openAgentAddModal = openAgentAddModal;
+
+function openAgentEditModal(id) {
+  const a = agents.find(x => x.id === id); if (!a) return;
+  $("#agentModalTitle").textContent = `编辑 ${a.id}`;
+  $("#agentFormIsEdit").value = a.id;
+  $("#agentFormId").value = a.id; $("#agentFormId").disabled = true;
+  $("#agentFormName").value = a.name; $("#agentFormRole").value = a.role || "";
+  $("#agentFormPersona").value = a.persona || ""; $("#agentFormModel").value = a.model_profile_id || "";
+  $("#agentFormEnabled").checked = a.enabled;
+  setAgentSkillTags(a.skills || []);
+  $("#modalAgent").classList.remove("hidden");
+}
+window.openAgentEditModal = openAgentEditModal;
+
+function closeAgentModal() { $("#modalAgent").classList.add("hidden"); }
+window.closeAgentModal = closeAgentModal;
+
+async function submitAgentForm(e) {
+  e.preventDefault();
+  const p = {
+    id: $("#agentFormId").value.trim(), name: $("#agentFormName").value.trim(),
+    role: $("#agentFormRole").value.trim(), persona: $("#agentFormPersona").value.trim(),
+    model_profile_id: $("#agentFormModel").value,     skills: getAgentSkills(),
+    enabled: $("#agentFormEnabled").checked,
+  };
+  try {
+    const r = await fetch("/api/agents", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(p) });
+    if (!r.ok) { const e = await r.json(); throw new Error(e.detail); }
+    closeAgentModal(); await loadAgents(); toast(`已保存 ${p.id}`, "success");
+  } catch(e) { toast(e.message, "error"); }
+}
+window.submitAgentForm = submitAgentForm;
+
+async function deleteAgent(id) {
+  if (!confirm(`确定删除 Agent "${id}"？`)) return;
+  try {
+    const r = await fetch(`/api/agents/${id}`, { method:"DELETE" });
+    if (!r.ok) { const e = await r.json(); throw new Error(e.detail); }
+    await loadAgents(); toast(`已删除 ${id}`, "success");
+  } catch(e) { toast(e.message, "error"); }
+}
+window.deleteAgent = deleteAgent;
+
+$("#modalAgent").addEventListener("click", e => { if (e.target === $("#modalAgent")) closeAgentModal(); });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 初始化
+// ═════════════════════════════════════════════════════════════════════════════
+loadProfiles();
+loadAgents();
+</script>
+</body>
+</html>

@@ -1,6 +1,45 @@
 app:
   active_model: deepseek_chat        # 当前使用的模型，切换改这里即可
 
+# Skill 快捷命令。当前命令行版本使用 /命令；Electron 阶段再映射为真实按键。
+skill_shortcuts:
+  drawio-skill:
+    trigger: /drawio
+    route: diagram_artist
+    default_input: 请说明你想绘制的图和步骤。
+    enabled: true
+  skill-manager:
+    trigger: /skills
+    route: skill_manager
+    default_input: 列出技能
+    enabled: true
+
+# 每个 Agent 的 Skill 权限。defaults 默认全关；列表中出现才允许使用。
+# 任意 Agent 都可以配置任意 Skill，但建议初始只开放职业所需能力。
+agent_skills:
+  defaults: []
+  agents:
+    mabel:
+      - conversation
+    analyst:
+      - task-routing
+    python_teacher:
+      - python-teaching
+    time_announcer:
+      - current-time
+    librarian:
+      - knowledge-retrieval
+    diagram_artist:
+      - drawio-skill
+    skill_manager:
+      - skill-management
+    identity_manager:
+      - identity-management
+    general:
+      - general-answer
+    validator:
+      - answer-validation
+
 models:
   openai_proxy:                    # API 中转站 — GPT-5.5 走代理
     provider: openai

@@ -1,0 +1,22 @@
+{
+  "pipelines": {
+    "default": {
+      "id": "default",
+      "name": "默认完整流程",
+      "entry_agent": "mabel",
+      "enabled": true,
+      "edges": [
+        {"source": "mabel", "target": "analyst", "condition": "normal"},
+        {"source": "analyst", "target": "python_teacher", "condition": "python"},
+        {"source": "analyst", "target": "time_announcer", "condition": "time"},
+        {"source": "analyst", "target": "librarian", "condition": "knowledge"},
+        {"source": "analyst", "target": "diagram_artist", "condition": "diagram"},
+        {"source": "python_teacher", "target": "validator", "condition": "always"},
+        {"source": "time_announcer", "target": "validator", "condition": "always"},
+        {"source": "librarian", "target": "validator", "condition": "always"},
+        {"source": "diagram_artist", "target": "validator", "condition": "always"},
+        {"source": "validator", "target": "mabel", "condition": "deliver"}
+      ]
+    }
+  }
+}

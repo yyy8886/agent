@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Agent Console</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-mark">M</span><div><strong>My Agent</strong><small>Control Console</small></div></div>
+    <nav>
+      <button class="nav-item active" data-view="overview">概览</button>
+      <button class="nav-item" data-view="agents">Agent 管理</button>
+      <button class="nav-item" data-view="pipelines">工作流</button>
+      <button class="nav-item" data-view="skills">技能市场</button>
+    </nav>
+    <div class="status"><span></span>本地服务已连接</div>
+  </aside>
+  <main>
+    <header><div><p class="eyebrow">LOCAL ORCHESTRATION</p><h1 id="page-title">系统概览</h1></div><button id="refresh" class="icon-button" title="刷新">↻</button></header>
+    <div id="notice" class="notice hidden"></div>
+    <section id="overview" class="view active"></section>
+    <section id="agents" class="view"></section>
+    <section id="pipelines" class="view"></section>
+    <section id="skills" class="view"></section>
+  </main>
+  <dialog id="agent-dialog"><form id="agent-form" method="dialog"></form></dialog>
+  <dialog id="pipeline-dialog"><form id="pipeline-form" method="dialog"></form></dialog>
+  <script src="/app.js"></script>
+</body>
+</html>

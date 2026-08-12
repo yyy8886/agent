@@ -1,5 +1,5 @@
 app:
-  active_model: openai_proxy       # 当前使用的模型，切换改这里即可
+  active_model: deepseek_chat        # 当前使用的模型，切换改这里即可
 
 models:
   openai_proxy:                    # API 中转站 — GPT-5.5 走代理

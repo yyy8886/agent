@@ -17,7 +17,7 @@
 #
 # 启动方式：
 #   python -m my_agent_next.app.web_server
-#   自动打开浏览器访问 http://127.0.0.1:9765
+#   端口等设置见 my_agent_next/config.yaml
 #
 # 项目中的位置（三层架构）：
 #   web_server.py (接口层) → ApiProfileService (业务层) → ApiProfileRepository (数据层)
@@ -27,6 +27,7 @@ import os
 import time
 from pathlib import Path
 
+import yaml
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -34,10 +35,17 @@ from fastapi.staticfiles import StaticFiles
 
 from .api_profile_service import ApiProfileService
 from .agent_profile_service import AgentProfileService
+from .chat_api import router as chat_router
 
-# 加载 .env，让 speed test 能读到 API Key
-backend_dir = Path(__file__).resolve().parent.parent.parent
-load_dotenv(backend_dir / ".env")
+# 项目根目录 = my_agent_next/
+project_dir = Path(__file__).resolve().parent.parent
+
+# 加载 my_agent_next/.env（API Key 在这里配置）
+load_dotenv(project_dir / ".env")
+
+# 加载 my_agent_next/config.yaml（端口等设置在这里配置）
+with open(project_dir / "config.yaml", "r", encoding="utf-8") as f:
+    _config = yaml.safe_load(f)
 
 app = FastAPI(title="My Agent Next — 管理中心")
 service = ApiProfileService()
@@ -93,6 +101,9 @@ def set_default(profile_id: str):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
+
+# ── 挂载对话路由 ────────────────────────────────────────────────────────────
+app.include_router(chat_router)
 
 # ── Agent 管理 ──────────────────────────────────────────────────────────────
 
@@ -223,11 +234,13 @@ if __name__ == "__main__":
     import uvicorn
     import webbrowser
 
-    url = "http://127.0.0.1:9800"
+    host = _config.get("server", {}).get("host", "127.0.0.1")
+    port = _config.get("server", {}).get("port", 9800)
+    auto_open = _config.get("server", {}).get("auto_open_browser", True)
+    url = f"http://{host}:{port}"
 
-    # 在 uvicorn 启动后自动打开浏览器
-    # webbrowser.open() 注册一个回调，uvicorn 启动后延迟 1.5 秒触发
-    import threading
-    threading.Timer(1.5, lambda: webbrowser.open(url)).start()
+    if auto_open:
+        import threading
+        threading.Timer(1.5, lambda: webbrowser.open(url)).start()
 
-    uvicorn.run("my_agent_next.app.web_server:app", host="127.0.0.1", port=9800, reload=True)
+    uvicorn.run("my_agent_next.app.web_server:app", host=host, port=port, reload=True)

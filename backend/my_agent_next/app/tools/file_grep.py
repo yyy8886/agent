@@ -48,7 +48,12 @@ def grep(pattern: str, path: str = ".") -> str:
             for i, line in enumerate(content.split("\n"), 1):
                 if compiled.search(line):
                     if not file_matched:
-                        results.append(f"\n{f.relative_to(WORKSPACE_ROOT)}:")
+                        # 显示路径：项目内用相对路径，项目外用绝对路径
+                        try:
+                            display = f.relative_to(WORKSPACE_ROOT)
+                        except ValueError:
+                            display = str(f)
+                        results.append(f"\n{display}:")
                         file_matched = True
                         matched_files += 1
                     results.append(f"  {i}: {line[:200]}")

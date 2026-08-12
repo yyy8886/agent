@@ -15,7 +15,6 @@
 # =============================================================================
 
 import json
-import os
 import re
 import zipfile
 import io
@@ -34,119 +33,6 @@ SKILLSMP_BASE = "https://skillsmp.com/api/v1"
 
 # HTTP 客户端
 _client = httpx.Client(timeout=15.0)
-
-# AI 适配用的 prompt 模板
-_AI_ADAPT_SYSTEM_PROMPT = """你是一个 Skill 格式标准化工具。你的任务是将任意格式的 Skill/AI 插件描述转换为标准 SKILL.md 格式。
-
-## 标准 SKILL.md 格式
-
-```
----
-name: <skill-name>
-description: <一句话描述这个 Skill 做什么>
----
-
-# <Skill 标题>
-
-## 功能
-- 功能点 1
-- 功能点 2
-
-## 使用方式
-描述什么时候应该使用这个 Skill，以及如何触发。
-
-## 可用工具
-本平台提供以下工具，请在 Skill 指令中只引用这些工具：
-
-| 工具名 | 签名 | 用途 |
-|--------|------|------|
-| read_file | (path, offset?, limit?) | 读取文件内容 |
-| write_file | (path, content) | 写入/覆盖文件 |
-| edit_file | (path, old_string, new_string) | 精确字符串替换 |
-| glob | (pattern, path?) | 文件模式匹配查找 |
-| grep | (pattern, path?) | 搜索文件内容（正则） |
-| run_bash | (command, timeout?) | 执行 Shell 命令 |
-| web_fetch | (url) | 获取网页内容 |
-| web_search | (query, max_results?) | 搜索互联网 |
-
-## 要求
-
-1. 从输入内容中提取核心指令、工作流、规则，用中文重新组织
-2. 确保 YAML frontmatter 包含 name 和 description
-3. 如果原文引用了不存在的工具，映射到上面最接近的工具
-4. 如果原文是给其他平台写的（Codex/OpenClaw/Cursor），去除平台特定指令，保留通用逻辑
-5. 保持简洁——Skill 是给另一个 AI 看的操作手册，不是给用户看的文档
-6. 正文不要超过 200 行
-
-只输出 SKILL.md 内容，不要加任何解释。"""
-
-
-def _ai_adapt_skill(raw_content: str, name: str, description: str) -> str:
-    """使用默认模型将原始 Skill 内容转换为标准 SKILL.md 格式。
-
-    如果 AI 调用失败，返回 None（调用方降级为保存原始内容）。
-    """
-    from .chat_service import ChatService
-
-    try:
-        profile = ChatService.resolve_model(None)
-        if not profile:
-            print("[marketplace] AI 适配跳过：没有可用的默认模型")
-            return None
-    except Exception as exc:
-        print(f"[marketplace] AI 适配跳过：获取模型失败 - {exc}")
-        return None
-
-    user_prompt = f"""请将以下 Skill 内容转换为标准 SKILL.md 格式。
-
-原始名称: {name}
-原始描述: {description}
-
----原始内容开始---
-{raw_content[:8000]}
----原始内容结束---"""
-
-    try:
-        model = _build_adapt_model(profile)
-        response = model.invoke([
-            {"role": "system", "content": _AI_ADAPT_SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-        ])
-        adapted = response.content if hasattr(response, "content") else str(response)
-
-        # 验证输出包含 frontmatter
-        if not adapted.strip().startswith("---"):
-            print("[marketplace] AI 适配警告：输出缺少 frontmatter，包一层")
-            adapted = f"---\nname: {name}\ndescription: {description}\n---\n\n{adapted}"
-
-        print(f"[marketplace] AI 适配成功：{len(raw_content)} → {len(adapted)} 字符")
-        return adapted
-    except Exception as exc:
-        print(f"[marketplace] AI 适配失败（降级为原始内容）: {exc}")
-        return None
-
-
-def _build_adapt_model(profile):
-    """构建用于 AI 适配的模型（不带工具绑定，只需要文本生成）。"""
-    common = {"model": profile.model, "temperature": 0.3}
-    if profile.provider == "deepseek":
-        from langchain_deepseek import ChatDeepSeek
-        return ChatDeepSeek(**common, api_key=os.getenv(profile.api_key_env or ""),
-                           base_url=profile.base_url or "https://api.deepseek.com",
-                           timeout=profile.timeout_seconds,
-                           max_retries=profile.max_retries)
-    elif profile.provider == "openai":
-        from langchain_openai import ChatOpenAI
-        return ChatOpenAI(**common, api_key=os.getenv(profile.api_key_env or ""),
-                         base_url=profile.base_url or "https://api.openai.com/v1",
-                         timeout=profile.timeout_seconds,
-                         max_retries=profile.max_retries)
-    elif profile.provider == "ollama":
-        from langchain_ollama import ChatOllama
-        return ChatOllama(**common,
-                         base_url=profile.base_url or "http://127.0.0.1:11434")
-    raise ValueError(f"不支持的 provider：{profile.provider}")
-
 
 # ── 搜索 ────────────────────────────────────────────────────────────────────
 
@@ -207,6 +93,7 @@ def _search_clawhub(q: str, page: int, sort: str) -> list[dict]:
                 "version": "",
                 "downloads": item.get("downloads", item.get("stars", 0)),
                 "author": _extract_author(item.get("publisher", item.get("owner", ""))),
+                "owner_handle": item.get("ownerHandle", ""),
             }
             for item in items
         ][:20]
@@ -249,28 +136,59 @@ def _search_skillsmp(q: str, page: int) -> list[dict]:
 # ── 获取 Skill 详情 ────────────────────────────────────────────────────────
 
 
+@router.get("/skill/local/{name}")
+def get_local_skill(name: str):
+    """读取本地已安装 Skill 的 SKILL.md 内容。"""
+    skill_dir = SKILLS_DIR / name
+    md_file = skill_dir / "SKILL.md"
+    if not md_file.is_file():
+        raise HTTPException(404, f"本地 Skill「{name}」不存在")
+    content = md_file.read_text(encoding="utf-8")
+    return {"name": name, "content": content, "source": "local"}
+
+
 @router.get("/skill/{source}/{slug}")
-def get_skill_detail(source: str, slug: str, url: str = Query(default="")):
-    """获取 Skill 的 SKILL.md 内容（安装前预览）。可传入 github_url 直接从 GitHub 获取。"""
+def get_skill_detail(source: str, slug: str, url: str = Query(default=""), owner: str = Query(default="")):
+    """获取 Skill 的 SKILL.md 内容（安装前预览）。可传入 github_url 或 owner_handle。"""
     if source == "clawhub":
-        return _get_clawhub_skill(slug)
+        return _get_clawhub_skill(slug, owner_handle=owner)
     elif source == "skillsmp":
         return _get_skillsmp_skill(slug, github_url=url)
     raise HTTPException(400, f"不支持的来源：{source}")
 
 
-def _get_clawhub_skill(slug: str) -> dict:
-    """获取 ClawHub Skill 详情。"""
+def _get_clawhub_skill(slug: str, owner_handle: str = "") -> dict:
+    """获取 ClawHub Skill 详情。
+
+    如果有 owner_handle，使用 @owner/slug 格式消除歧义。
+    如果有同名 Skill，409 时自动取第一个匹配项。
+    """
     try:
-        resp = _client.get(f"{CLAWHUB_BASE}/skills/{slug}")
+        # 使用 owner/slug 格式消除歧义
+        if owner_handle:
+            qualified = f"@{owner_handle}/{slug}"
+            resp = _client.get(f"{CLAWHUB_BASE}/skills/{qualified}")
+        else:
+            resp = _client.get(f"{CLAWHUB_BASE}/skills/{slug}")
+
+        # 409 冲突：有多个同名 Skill
+        if resp.status_code == 409:
+            data = resp.json()
+            matches = data.get("matches", [])
+            if matches:
+                # 取第一个匹配项的 ref（如 @owner/slug）
+                ref = matches[0].get("ref", matches[0].get("url", ""))
+                if ref:
+                    resp = _client.get(f"{CLAWHUB_BASE}/skills/{ref}")
+                else:
+                    raise HTTPException(404, f"ClawHub 有多个同名 Skill「{slug}」，请指定作者")
+
         if resp.status_code != 200:
             raise HTTPException(404, f"ClawHub 未找到：{slug}")
+
         data = resp.json()
-        # ClawHub 返回格式可能是 {skill: {...}} 或直接就是 skill 对象
         skill_data = data.get("skill", data)
-        # ClawHub skill 详情：skill.description 是完整 SKILL.md，skill.summary 是简介
         description = (skill_data.get("summary") or skill_data.get("description") or "")
-        # content 优先取 description（它可能就是 SKILL.md），再取 readme/content
         content = (skill_data.get("description") or skill_data.get("readme")
                    or skill_data.get("content") or "")
         return {
@@ -289,60 +207,64 @@ def _get_clawhub_skill(slug: str) -> dict:
 def _get_skillsmp_skill(slug: str, github_url: str = "") -> dict:
     """获取 SkillsMP Skill 详情。
 
-    SkillsMP 没有单独获取 Skill 的 API。
-    优先用传入的 github_url 直接从 GitHub 获取，否则用 slug 搜索。
+    先搜索 SkillsMP 获取元信息（名称、描述、githubUrl），再从 GitHub 获取完整 SKILL.md。
     """
-    skill_url = ""
-    description = ""
     name = slug
+    description = ""
+    skill_url = ""
 
-    # 1. 如果有 github_url，直接尝试从 GitHub 获取内容
+    # 1. 尝试从 github URL 提取更好的搜索关键词
+    search_q = slug
     if github_url:
-        content = _fetch_github_skill(github_url)
-        if content:
-            return {
-                "name": name,
-                "description": description,
-                "source": "skillsmp",
-                "slug": slug,
-                "version": "",
-                "files": [],
-                "content": content,
-            }
+        # 取 GitHub URL 的最后一段作为名称/搜索词
+        parts = github_url.rstrip("/").split("/")
+        if parts:
+            search_q = parts[-1]  # e.g. "drawio-skill"
 
-    # 2. 用 slug 搜索找到元信息和 githubUrl
+    # 2. 搜索 SkillsMP 匹配元信息
     try:
         search_resp = _client.get(
             f"{SKILLSMP_BASE}/skills/search",
-            params={"q": slug.replace("-", " "), "limit": 20},
+            params={"q": search_q, "limit": 30},
         )
         if search_resp.status_code == 200:
             search_data = search_resp.json()
             skills = search_data.get("data", {}).get("skills", [])
             for sk in skills:
-                if sk.get("id") == slug or sk.get("name") == slug:
-                    github_url = sk.get("githubUrl", "")
-                    skill_url = sk.get("skillUrl", "")
+                if sk.get("id") == slug or sk.get("skillUrl", "").endswith(slug):
                     name = sk.get("name", slug)
                     description = sk.get("description", "")
-                    # 尝试从 GitHub URL 获取内容
-                    if github_url:
-                        content = _fetch_github_skill(github_url)
-                        if content:
-                            return {
-                                "name": name, "description": description,
-                                "source": "skillsmp", "slug": slug,
-                                "version": "", "files": [], "content": content,
-                            }
-                    # GitHub 获取失败，返回元信息
-                    return {
-                        "name": name, "description": description,
-                        "source": "skillsmp", "slug": slug,
-                        "version": "", "files": [],
-                        "content": f"# {name}\n\n{description}\n\nSkill URL: {skill_url}\nGitHub: {github_url}",
-                    }
+                    if not github_url:
+                        github_url = sk.get("githubUrl", "")
+                    skill_url = sk.get("skillUrl", "")
+                    break
     except Exception:
         pass
+
+    # 3. 如果搜索没找到名字，从 github_url 提取
+    if name == slug and github_url:
+        parts = github_url.rstrip("/").split("/")
+        if parts:
+            name = parts[-1]
+
+    # 4. 从 GitHub 获取完整内容
+    if github_url:
+        content = _fetch_github_skill(github_url)
+        if content:
+            return {
+                "name": name, "description": description,
+                "source": "skillsmp", "slug": slug,
+                "version": "", "files": [], "content": content,
+            }
+
+    # 5. GitHub 获取失败，返回元信息
+    if description:
+        return {
+            "name": name, "description": description,
+            "source": "skillsmp", "slug": slug,
+            "version": "", "files": [],
+            "content": f"# {name}\n\n{description}\n\nSkill URL: {skill_url}\nGitHub: {github_url}",
+        }
 
     raise HTTPException(404, f"SkillsMP 未找到：{slug}")
 
@@ -352,73 +274,297 @@ def _get_skillsmp_skill(slug: str, github_url: str = "") -> dict:
 
 @router.post("/install")
 def install_skill(payload: dict):
-    """从市场下载并通过 AI 解析层适配后安装到本地 skills/ 目录。
-
-    流程：下载原始内容 → AI 标准化为 SKILL.md → 保存到 skills/<name>/
-    如果 AI 适配失败，降级为直接保存原始内容。
-    """
+    """从市场下载原始 SKILL.md 并保存到本地 skills/ 目录，
+    同时下载配套文件（scripts/, references/ 等）。"""
     source = str(payload.get("source", ""))
     slug = str(payload.get("slug", ""))
     github_url = str(payload.get("github_url", ""))
+    owner_handle = str(payload.get("owner_handle", ""))
 
     if not source or not slug:
         raise HTTPException(400, "source 和 slug 不能为空")
 
     # 1. 下载原始内容
-    detail = get_skill_detail(source, slug, url=github_url)
+    detail = get_skill_detail(source, slug, url=github_url, owner=owner_handle)
     content = detail.get("content", "")
     name = detail.get("name", slug)
     description = detail.get("description", "")
 
-    if not content:
-        # 尝试下载 ZIP
-        if source == "clawhub":
-            content = _download_clawhub_skill(slug, name)
+    # 2. 尝试获取配套文件（ClawHub ZIP 或 GitHub 仓库）
+    extra_files = 0
+    if source == "clawhub":
+        extra_files = _download_and_extract_clawhub(slug, name)
         if not content:
-            raise HTTPException(400, "无法获取 Skill 内容")
+            # SKILL.md 可能从 ZIP 中提取出来了
+            skill_dir = SKILLS_DIR / name
+            md_file = skill_dir / "SKILL.md"
+            if md_file.is_file():
+                content = md_file.read_text(encoding="utf-8")
+    elif source == "skillsmp" and github_url:
+        extra_files = _download_github_extras(github_url, name)
 
-    # 2. AI 适配：将任意格式转换为标准 SKILL.md
-    adapted = _ai_adapt_skill(content, name, description)
+    if not content:
+        raise HTTPException(400, "无法获取 Skill 内容")
 
-    if adapted:
-        content = adapted
-        ai_adapted = True
-    else:
-        # 降级：简单包装 frontmatter
-        if not content.strip().startswith("---"):
-            content = f"---\nname: {name}\ndescription: {description}\n---\n\n{content}"
-        ai_adapted = False
+    # 3. 如果没有 frontmatter，简单包一层
+    if not content.strip().startswith("---"):
+        content = f"---\nname: {name}\ndescription: {description}\n---\n\n{content}"
 
-    # 3. 保存到 skills/<name>/SKILL.md
+    # 4. 保存到 skills/<name>/SKILL.md
     skill_dir = SKILLS_DIR / name
     skill_dir.mkdir(parents=True, exist_ok=True)
     (skill_dir / "SKILL.md").write_text(content, encoding="utf-8")
+
+    # 5. 列出最终文件
+    installed_files = [
+        str(p.relative_to(skill_dir))
+        for p in skill_dir.rglob("*") if p.is_file()
+    ]
 
     return {
         "installed": True,
         "name": name,
         "path": str(skill_dir.relative_to(SKILLS_DIR.parent)),
         "source": source,
-        "ai_adapted": ai_adapted,
+        "files": installed_files,
+        "extra_files_downloaded": extra_files,
     }
 
 
-def _download_clawhub_skill(slug: str, name: str) -> str:
-    """从 ClawHub 下载 Skill ZIP 并提取 SKILL.md。"""
+# ── 卸载 Skill ─────────────────────────────────────────────────────────────
+
+# 内置 Skill，不允许删除
+PROTECTED_SKILLS = {"review-agent", "skill-creator", "skill-installer", "user-memory"}
+
+
+@router.delete("/skills/{name}")
+def uninstall_skill(name: str):
+    """卸载一个已安装的 Skill。
+
+    保护规则：
+    1. 四个内置 Skill（review-agent, skill-creator, skill-installer, user-memory）不允许删除
+    2. 如果 Skill 正被 Agent 使用，返回使用该 Skill 的 Agent 列表，要求先解绑
+    """
+    name = name.strip()
+    if not name:
+        raise HTTPException(400, "Skill 名称不能为空")
+
+    # 1. 检查内置 Skill
+    if name in PROTECTED_SKILLS:
+        raise HTTPException(400, f"「{name}」是内置 Skill，不允许删除")
+
+    # 2. 检查 Skill 是否存在
+    skill_dir = SKILLS_DIR / name
+    if not skill_dir.is_dir() or not (skill_dir / "SKILL.md").exists():
+        raise HTTPException(404, f"Skill「{name}」不存在")
+
+    # 3. 检查是否有 Agent 正在使用
+    from .agent_profile_repository import AgentProfileRepository
+    agent_repo = AgentProfileRepository()
+    using_agents = [
+        a.name or a.id
+        for a in agent_repo.list()
+        if name in (a.skills or [])
+    ]
+    if using_agents:
+        raise HTTPException(
+            400,
+            f"无法删除「{name}」，以下 Agent 正在使用该 Skill：\n"
+            + "、".join(using_agents)
+            + "\n请先在 Agent 管理中取消绑定后再删除。",
+        )
+
+    # 4. 删除目录
+    import shutil
+    try:
+        shutil.rmtree(skill_dir)
+        return {"deleted": True, "name": name}
+    except Exception as exc:
+        raise HTTPException(500, f"删除失败：{exc}")
+
+
+def _download_and_extract_clawhub(slug: str, name: str) -> int:
+    """从 ClawHub 下载 Skill ZIP 并提取所有文件到 skills/<name>/。"""
     try:
         resp = _client.get(f"{CLAWHUB_BASE}/download", params={"slug": slug})
         if resp.status_code != 200:
-            return ""
+            return 0
+        skill_dir = SKILLS_DIR / name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        count = 0
         with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
             for info in zf.filelist:
-                if info.filename.endswith("SKILL.md") or info.filename.endswith("README.md"):
-                    return zf.read(info.filename).decode("utf-8", errors="replace")
-            # 没有 markdown 文件，列出所有文件
-            files = [f.filename for f in zf.filelist[:10]]
-            return f"ZIP 内容：{', '.join(files)}"
+                if info.is_dir():
+                    continue
+                filename = info.filename
+                # 去掉 ZIP 中的顶层目录前缀（如 drawio-main/SKILL.md → SKILL.md）
+                parts = filename.replace("\\", "/").split("/")
+                if len(parts) > 1 and parts[0].lower() in (name.lower(), f"{name.lower()}-main", f"{name.lower()}-master"):
+                    rel_path = "/".join(parts[1:])
+                else:
+                    rel_path = filename
+                dest = skill_dir / rel_path
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    content = zf.read(info.filename)
+                    dest.write_bytes(content)
+                    count += 1
+                except Exception:
+                    pass
+        return count
     except Exception as exc:
-        print(f"[marketplace] 下载 ClawHub Skill 失败: {exc}")
-        return ""
+        print(f"[marketplace] 下载 ClawHub ZIP 失败: {exc}")
+        return 0
+
+
+def _download_github_extras(github_url: str, name: str) -> int:
+    """从 GitHub 仓库递归下载 Skill 目录的全部文件（含 scripts/, data/, styles/ 等）。"""
+    if not github_url:
+        return 0
+    try:
+        import re
+        # 解析 GitHub URL: /tree/<branch>/<path> 或 /blob/<branch>/<path>
+        match = re.match(
+            r"https?://github\.com/([^/]+)/([^/]+)/(?:tree|blob)/([^/]+)/(.+)$",
+            github_url,
+        )
+        if not match:
+            return 0
+        owner, repo, branch, path = match.groups()
+        path = path.rstrip("/")
+
+        skill_dir = SKILLS_DIR / name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+
+        api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}?ref={branch}"
+        count = _fetch_github_dir(api_url, skill_dir)
+        return count
+    except Exception as exc:
+        print(f"[marketplace] GitHub 全量下载失败: {exc}")
+        return 0
+
+
+def _fetch_github_dir(api_url: str, dest_dir: Path) -> int:
+    """递归下载 GitHub 目录的全部内容到 dest_dir。返回下载的文件数。
+
+    优先使用 GitHub API；如果 API 限流（403），降级为解析 HTML 页面。
+    """
+    items = _github_api_list(api_url)
+    if items is None:
+        # API 失败，尝试解析 HTML
+        html_url = api_url.replace("api.github.com/repos", "github.com")
+        html_url = re.sub(r"/contents/", "/tree/", html_url)
+        html_url = re.sub(r"\?ref=", "/", html_url)
+        owner, repo, branch, path = _parse_github_api_url(api_url)
+        if owner:
+            items = _github_html_list(owner, repo, branch, path)
+
+    if not items:
+        return 0
+
+    count = 0
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    for item in items:
+        name = item.get("name", "")
+        if item.get("type") == "file":
+            # 跳过 SKILL.md —— 已由 install_skill 写入（含 frontmatter 处理）
+            if name == "SKILL.md":
+                continue
+            download_url = item.get("download_url") or item.get("html_url", "")
+            if download_url:
+                try:
+                    file_resp = _client.get(download_url)
+                    if file_resp.status_code == 200:
+                        (dest_dir / name).write_bytes(file_resp.content)
+                        count += 1
+                except Exception:
+                    pass
+        elif item.get("type") == "dir":
+            sub_url = item.get("url") or item.get("html_url", "")
+            if sub_url:
+                count += _fetch_github_dir(sub_url, dest_dir / name)
+
+    return count
+
+
+def _github_api_list(api_url: str) -> list | None:
+    """通过 GitHub API 获取目录列表。失败返回 None。"""
+    try:
+        resp = _client.get(api_url, headers={
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "MyAgentNext/1.0",
+        })
+        if resp.status_code == 200:
+            items = resp.json()
+            if isinstance(items, list):
+                return items
+    except Exception:
+        pass
+    return None
+
+
+def _parse_github_api_url(api_url: str) -> tuple:
+    """解析 GitHub API URL: (owner, repo, branch, path)。"""
+    import re
+    m = re.match(
+        r"https?://api\.github\.com/repos/([^/]+)/([^/]+)/contents/(.+?)(?:\?ref=(.+))?$",
+        api_url,
+    )
+    if m:
+        owner, repo, path = m.group(1), m.group(2), m.group(3)
+        branch = m.group(4) or "main"
+        return owner, repo, branch, path
+    return None, None, None, None
+
+
+def _github_html_list(owner: str, repo: str, branch: str, path: str) -> list:
+    """解析 GitHub HTML 页面获取目录文件列表（API 限流时的降级方案）。"""
+    try:
+        html_url = f"https://github.com/{owner}/{repo}/tree/{branch}/{path}"
+        resp = _client.get(html_url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        })
+        if resp.status_code != 200:
+            return []
+
+        import re
+        text = resp.text
+
+        items = []
+        # 提取文件/目录行：<a href="/owner/repo/blob|tree/branch/path/filename"
+        pattern = re.compile(
+            r'href="/' + re.escape(owner) + r'/' + re.escape(repo)
+            + r'/(blob|tree)/' + re.escape(branch) + r'/'
+            + re.escape(path) + r'/([^"]+)"',
+        )
+        seen = set()
+        for match in pattern.finditer(text):
+            entry_type = "file" if match.group(1) == "blob" else "dir"
+            name = match.group(2).split("/")[0]  # 只取第一级
+            if name in seen:
+                continue
+            seen.add(name)
+
+            # 构建 raw/download URL
+            if entry_type == "file":
+                raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}/{name}"
+                sub_url = raw_url
+            else:
+                sub_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}/{name}?ref={branch}"
+
+            items.append({
+                "name": name,
+                "type": entry_type,
+                "download_url": raw_url if entry_type == "file" else None,
+                "url": sub_url,
+                "html_url": f"https://github.com/{owner}/{repo}/{entry_type}/{branch}/{path}/{name}",
+            })
+
+        return items
+    except Exception as exc:
+        print(f"[marketplace] HTML 解析失败: {exc}")
+        return []
 
 
 # ── 辅助 ────────────────────────────────────────────────────────────────────

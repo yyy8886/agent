@@ -20,7 +20,7 @@ from fastapi.responses import StreamingResponse
 
 from .agent_profile_repository import AgentProfileRepository
 from .chat_repository import ChatRepository
-from .chat_service import ChatService, set_tool_decision
+from .chat_service import ChatService, set_tool_decision, set_question_response
 
 router = APIRouter(prefix="/api/chat")
 repo = ChatRepository()
@@ -105,4 +105,15 @@ def tool_response(thread_id: str, payload: dict):
     if not confirm_id:
         raise HTTPException(400, "confirm_id 不能为空。")
     set_tool_decision(thread_id, confirm_id, allowed)
+    return {"status": "ok"}
+
+
+@router.post("/threads/{thread_id}/question-response")
+def question_response(thread_id: str, payload: dict):
+    """用户对 ask_user_question 的答案。"""
+    call_id = str(payload.get("call_id", "")).strip()
+    answers = payload.get("answers", [])
+    if not call_id:
+        raise HTTPException(400, "call_id 不能为空。")
+    set_question_response(thread_id, call_id, answers)
     return {"status": "ok"}

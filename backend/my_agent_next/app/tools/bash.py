@@ -33,7 +33,7 @@ def run_bash(command: str, timeout: int = 30) -> str:
             cwd=str(WORKSPACE_ROOT),
             env={**__import__("os").environ, "PYTHONUNBUFFERED": "1"},
         )
-        output = result.stdout
+        output = result.stdout or ""
         if result.stderr:
             output += f"\n[stderr]\n{result.stderr}"
         if result.returncode != 0:

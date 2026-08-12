@@ -39,12 +39,25 @@ MAX_AGENT_ITERATIONS = _chat_config.get("max_agent_iterations", 10)
 _pending: dict[str, asyncio.Event] = {}
 _decisions: dict[str, dict] = {}
 
+# ask_user_question 等待区
+_question_pending: dict[str, asyncio.Event] = {}
+_question_answers: dict[str, dict] = {}
+
 
 def set_tool_decision(thread_id: str, tool_call_id: str, allowed: bool) -> None:
     """由 chat_api 调用，存入用户对工具调用的决定。"""
     key = f"{thread_id}:{tool_call_id}"
     _decisions[key] = {"allowed": allowed}
     event = _pending.get(key)
+    if event:
+        event.set()
+
+
+def set_question_response(thread_id: str, call_id: str, answers: list) -> None:
+    """由 chat_api 调用，存入用户对 ask_user_question 的答案。"""
+    key = f"{thread_id}:{call_id}"
+    _question_answers[key] = {"answers": answers}
+    event = _question_pending.get(key)
     if event:
         event.set()
 
@@ -99,12 +112,52 @@ class ChatService:
         # 2. 注入 Agent 启用的 Skill 的 SKILL.md 内容
         if agent:
             from my_agent_next.skills._loader import get as get_skill
+            skills_dir = Path(__file__).resolve().parent.parent / "skills"
             for skill_name in agent.skills or []:
                 info = get_skill(skill_name)
                 if info:
+                    skill_dir = skills_dir / skill_name
+                    # 扫描 skill 目录下的可用资源
+                    scripts_list = []
+                    refs_list = []
+                    if skill_dir.is_dir():
+                        scripts_dir = skill_dir / "scripts"
+                        if scripts_dir.is_dir():
+                            scripts_list = sorted([
+                                p.name for p in scripts_dir.iterdir()
+                                if p.is_file() and not p.name.startswith('.')
+                            ])
+                        refs_dir = skill_dir / "references"
+                        if refs_dir.is_dir():
+                            refs_list = sorted([
+                                p.name for p in refs_dir.iterdir()
+                                if p.is_file() and not p.name.startswith('.')
+                            ])
+
+                    # 构建资源清单
+                    resources_note = ""
+                    if scripts_list or refs_list:
+                        resources_note = (
+                            f"\n\n## Skill 资源清单（位于 skills/{skill_name}/）\n"
+                        )
+                        if scripts_list:
+                            resources_note += (
+                                f"\n### scripts/ — 用 run_bash 执行：\n"
+                                + "\n".join(f"- `python skills/{skill_name}/scripts/{s}`"
+                                           for s in scripts_list)
+                            )
+                        if refs_list:
+                            resources_note += (
+                                f"\n\n### references/ — 用 read_file 查阅：\n"
+                                + "\n".join(f"- `skills/{skill_name}/references/{r}`"
+                                           for r in refs_list)
+                            )
+
                     skill_prompt = (
-                        f"## 可用技能：{info.name}\n\n"
+                        f"## 可用技能：{info.name}\n"
+                        f"Skill 文件目录：skills/{skill_name}/\n\n"
                         f"{info.description}\n\n{info.content}"
+                        f"{resources_note}"
                     )
                     messages.append(SystemMessage(content=skill_prompt))
 
@@ -190,6 +243,38 @@ class ChatService:
 
                     # 通知前端工具调用
                     yield f"data: {json.dumps({'event': 'tool_call', 'data': {'name': tool_name, 'args': tool_args}})}\n\n"
+
+                    # ── ask_user_question 拦截 ──────────────────────
+                    if tool_name == "ask_user_question":
+                        questions_str = str(tool_args.get("questions_json", ""))
+                        try:
+                            questions = json.loads(questions_str)
+                        except json.JSONDecodeError:
+                            questions = [{"question": questions_str, "header": "问题", "options": [], "multiSelect": False}]
+
+                        question_key = f"{thread_id}:{tc_id}"
+                        yield f"data: {json.dumps({'event': 'ask_user', 'data': {'call_id': tc_id, 'questions': questions}})}\n\n"
+
+                        # 等待用户回答
+                        event = asyncio.Event()
+                        _question_pending[question_key] = event
+                        try:
+                            await asyncio.wait_for(event.wait(), timeout=300.0)
+                        except asyncio.TimeoutError:
+                            _question_pending.pop(question_key, None)
+                            answer_text = "用户未在超时时间内回答。"
+                        else:
+                            _question_pending.pop(question_key, None)
+                            answer_data = _question_answers.pop(question_key, {})
+                            answers = answer_data.get("answers", [])
+                            answer_text = json.dumps(answers, ensure_ascii=False)
+
+                        messages.append(ToolMessage(
+                            content=answer_text,
+                            tool_call_id=tc_id,
+                        ))
+                        yield f"data: {json.dumps({'event': 'tool_result', 'data': {'name': tool_name, 'result': answer_text[:500]}})}\n\n"
+                        continue
 
                     # ── 权限检查 ──────────────────────────────────────
                     allowed = True

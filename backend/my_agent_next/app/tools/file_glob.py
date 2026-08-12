@@ -22,11 +22,17 @@ def glob(pattern: str, path: str = ".") -> str:
             return f"错误：目录不存在 - {path}"
         matches = sorted(base.glob(pattern))
         # 限制结果数量
+        def _display(p: Path) -> str:
+            try:
+                return str(p.relative_to(WORKSPACE_ROOT))
+            except ValueError:
+                return str(p)
+
         if len(matches) > 200:
-            lines = [str(m.relative_to(WORKSPACE_ROOT)) for m in matches[:200]]
+            lines = [_display(m) for m in matches[:200]]
             lines.append(f"\n... 共 {len(matches)} 个匹配，只显示前 200 个")
         else:
-            lines = [str(m.relative_to(WORKSPACE_ROOT)) for m in matches]
+            lines = [_display(m) for m in matches]
         if not lines:
             return f"无匹配：{pattern}"
         return "\n".join(lines)

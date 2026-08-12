@@ -349,6 +349,13 @@ index.html — My Agent Next 管理中心
       </select>
       <button class="btn btn-primary btn-sm" onclick="mpSearch()">搜索</button>
     </div>
+    <div id="mpInstalled" style="margin-bottom:20px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <h3 style="font-size:.9rem;font-weight:700;color:var(--text)">📦 已安装 (<span id="mpInstalledCount">0</span>)</h3>
+      </div>
+      <div id="mpInstalledList" class="cards-grid"></div>
+      <div id="mpInstalledEmpty" style="padding:12px;text-align:center;color:var(--text-dim);font-size:.8rem;border:1px dashed var(--border);border-radius:var(--radius-sm)">暂无已安装 Skill</div>
+    </div>
     <div id="mpResults" class="cards-grid"></div>
     <div id="mpEmpty" class="empty-state hidden"><h3>搜索 Skill 市场</h3><p>输入关键词搜索 ClawHub 和 SkillsMP 上的 Skill。</p></div>
   </div>
@@ -361,6 +368,18 @@ index.html — My Agent Next 管理中心
       <div class="form-actions">
         <button class="btn btn-danger btn-sm" onclick="toolConfirmRespond(false)">拒绝</button>
         <button class="btn btn-primary btn-sm" onclick="toolConfirmRespond(true)">允许</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 用户问答弹窗 ────────────────────────────────────────────────────────── -->
+  <div class="modal-overlay hidden" id="modalAskUser">
+    <div class="modal" style="max-width:520px">
+      <h2 id="askUserTitle">需要您的输入</h2>
+      <div id="askUserBody" style="margin-bottom:16px;font-size:.85rem;line-height:1.6"></div>
+      <div class="form-actions">
+        <button class="btn btn-danger btn-sm" onclick="askUserRespond(null)">跳过</button>
+        <button class="btn btn-primary btn-sm" onclick="askUserRespond()">提交</button>
       </div>
     </div>
   </div>
@@ -493,7 +512,7 @@ function switchTab(tab) {
   document.getElementById("btnNewAgent").style.display = tab==="agents"?"":"none";
   document.getElementById("btnNewThread").style.display = tab==="workspace"?"":"none";
   if (tab === "workspace") workspaceInit();
-  if (tab === "marketplace" && !mpHasSearched) mpSearch("");
+  if (tab === "marketplace") { loadInstalledSkills(); if (!mpHasSearched) mpSearch(""); }
 }
 window.switchTab = switchTab;
 
@@ -861,6 +880,73 @@ document.getElementById("modalToolConfirm").addEventListener("click", function(e
   if (e.target === this) toolConfirmRespond(false);
 });
 
+// ── ask_user_question ──────────────────────────────────────────────────────
+let pendingAskUserCallId = null;
+let pendingAskUserThreadId = null;
+
+function showAskUser(threadId, callId, questions) {
+  pendingAskUserCallId = callId;
+  pendingAskUserThreadId = threadId;
+  document.getElementById("askUserTitle").textContent = "需要您的输入";
+
+  let html = "";
+  questions.forEach((q, qi) => {
+    const qid = `askuser_q${qi}`;
+    html += `<div style="margin-bottom:16px;padding:12px;background:#11131c;border:1px solid var(--border);border-radius:var(--radius-sm)">`;
+    html += `<div style="font-weight:700;margin-bottom:8px">${esc(q.header || '问题 ' + (qi+1))}</div>`;
+    html += `<div style="color:var(--text-dim);margin-bottom:10px">${esc(q.question)}</div>`;
+    const inputType = q.multiSelect ? "checkbox" : "radio";
+    (q.options || []).forEach((opt, oi) => {
+      const oid = `${qid}_o${oi}`;
+      html += `<label style="display:flex;align-items:center;gap:8px;padding:8px 0;cursor:pointer;border-bottom:1px solid var(--border-light, #2a2d3a);font-size:.82rem">`;
+      html += `<input type="${inputType}" name="${qid}" value="${esc(opt.label)}" data-q="${qi}" data-label="${esc(opt.label)}">`;
+      html += `<div><div>${esc(opt.label)}</div>`;
+      if (opt.description) html += `<div style="color:var(--text-dim);font-size:.75rem">${esc(opt.description)}</div>`;
+      html += `</div></label>`;
+    });
+    html += `</div>`;
+  });
+  document.getElementById("askUserBody").innerHTML = html;
+  document.getElementById("modalAskUser").classList.remove("hidden");
+}
+
+function askUserRespond(skipAnswers) {
+  if (skipAnswers !== null && skipAnswers === null) {
+    // 跳过：不发送答案
+    fetch(`/api/chat/threads/${pendingAskUserThreadId}/question-response`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ call_id: pendingAskUserCallId, answers: [] }),
+    }).catch(() => {});
+  } else {
+    // 收集所有已选中的选项
+    const checked = document.querySelectorAll("#askUserBody input:checked");
+    const answersByQ = {};
+    checked.forEach(cb => {
+      const qIdx = parseInt(cb.dataset.q);
+      if (!answersByQ[qIdx]) answersByQ[qIdx] = [];
+      answersByQ[qIdx].push(cb.dataset.label || cb.value);
+    });
+    const answers = Object.entries(answersByQ).map(([qi, labels]) => ({
+      questionIndex: parseInt(qi),
+      answers: labels,
+    }));
+
+    fetch(`/api/chat/threads/${pendingAskUserThreadId}/question-response`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ call_id: pendingAskUserCallId, answers }),
+    }).catch(() => {});
+  }
+  document.getElementById("modalAskUser").classList.add("hidden");
+  pendingAskUserCallId = null;
+  pendingAskUserThreadId = null;
+}
+
+document.getElementById("modalAskUser").addEventListener("click", function(e) {
+  if (e.target === this) askUserRespond(null);
+});
+
 // ═════════════════════════════════════════════════════════════════════════════
 // ============== Skill 市场 ==============
 // ═════════════════════════════════════════════════════════════════════════════
@@ -904,10 +990,11 @@ function mpCard(item) {
   const sourceColor = item.source === "clawhub" ? "var(--accent)" : "var(--success)";
   const downloads = item.downloads ? `⭐ ${item.downloads}` : "";
   const githubUrl = encodeURIComponent(item.github_url || "");
+  const ownerHandle = encodeURIComponent(item.owner_handle || "");
   const actionBtn = item.installed
     ? '<span style="color:var(--success);font-size:.8rem;font-weight:600">✓ 已安装</span>'
-    : `<button class="btn btn-ghost btn-sm" onclick="mpPreview('${esc(item.source)}','${esc(item.slug)}','${githubUrl}')">预览</button>
-       <button class="btn btn-primary btn-sm" onclick="mpInstall('${esc(item.source)}','${esc(item.slug)}','${esc(item.name)}','${githubUrl}')">安装</button>`;
+    : `<button class="btn btn-ghost btn-sm" onclick="mpPreview('${esc(item.source)}','${esc(item.slug)}','${githubUrl}','${ownerHandle}')">预览</button>
+       <button class="btn btn-primary btn-sm" onclick="mpInstall('${esc(item.source)}','${esc(item.slug)}','${esc(item.name)}','${githubUrl}','${ownerHandle}')">安装</button>`;
 
   return `<div class="card">
     <div class="card-header">
@@ -924,10 +1011,14 @@ function mpCard(item) {
   </div>`;
 }
 
-async function mpPreview(source, slug, githubUrl) {
+async function mpPreview(source, slug, githubUrl, ownerHandle) {
   try {
-    const url = githubUrl
-      ? `/api/marketplace/skill/${source}/${slug}?url=${githubUrl}`
+    const params = new URLSearchParams();
+    if (githubUrl) params.set('url', decodeURIComponent(githubUrl));
+    if (ownerHandle) params.set('owner', decodeURIComponent(ownerHandle));
+    const qs = params.toString();
+    const url = qs
+      ? `/api/marketplace/skill/${source}/${slug}?${qs}`
       : `/api/marketplace/skill/${source}/${slug}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error((await res.json()).detail || "获取失败");
@@ -946,10 +1037,12 @@ async function mpPreview(source, slug, githubUrl) {
 }
 window.mpPreview = mpPreview;
 
-async function mpInstall(source, slug, name, githubUrl) {
+async function mpInstall(source, slug, name, githubUrl, ownerHandle) {
   if (!confirm(`确定安装 "${name || slug}"？`)) return;
   try {
-    const body = githubUrl ? { source, slug, github_url: decodeURIComponent(githubUrl) } : { source, slug };
+    const body = { source, slug };
+    if (githubUrl) body.github_url = decodeURIComponent(githubUrl);
+    if (ownerHandle) body.owner_handle = decodeURIComponent(ownerHandle);
     const res = await fetch("/api/marketplace/install", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -957,16 +1050,93 @@ async function mpInstall(source, slug, name, githubUrl) {
     });
     if (!res.ok) throw new Error((await res.json()).detail || "安装失败");
     const data = await res.json();
-    toast(`✓ ${data.name} 已安装到 skills/${data.name}/`, "success");
-    // 刷新搜索结果以更新已安装状态
+    toast(`已安装 ${data.name}`, "success");
+    // 刷新
     mpSearch(document.getElementById("mpSearch").value.trim());
-    // 也刷新 Agent 页的 Skill 列表
+    loadInstalledSkills();
     loadAgents();
   } catch (e) {
     toast("安装失败: " + e.message, "error");
   }
 }
 window.mpInstall = mpInstall;
+
+async function loadInstalledSkills() {
+  try {
+    const res = await fetch("/api/skills");
+    if (!res.ok) return;
+    const skills = await res.json();
+    document.getElementById("mpInstalledCount").textContent = skills.length;
+
+    const list = document.getElementById("mpInstalledList");
+    const empty = document.getElementById("mpInstalledEmpty");
+
+    if (!skills.length) {
+      list.innerHTML = "";
+      empty.style.display = "block";
+      return;
+    }
+
+    empty.style.display = "none";
+    list.innerHTML = skills.map(s => {
+      const isProtected = ["review-agent","skill-creator","skill-installer","user-memory"].includes(s.name);
+      const badge = isProtected
+        ? '<span class="badge" style="background:var(--warning);color:#000;margin-left:6px">系统</span>'
+        : '';
+      return `<div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">${esc(s.name)}${badge}</div>
+          </div>
+        </div>
+        <div class="card-body">
+          <p style="line-height:1.5">${esc(s.description || "暂无描述")}</p>
+        </div>
+        <div class="card-actions">
+          <button class="btn btn-ghost btn-sm" onclick="mpPreviewLocal('${esc(s.name)}')">预览</button>
+          ${isProtected
+            ? '<span style="font-size:.72rem;color:var(--text-dim)">内置保护</span>'
+            : `<button class="btn btn-danger btn-sm" onclick="uninstallSkill('${esc(s.name)}')">卸载</button>`}
+        </div>
+      </div>`;
+    }).join("");
+  } catch (e) {}
+}
+window.loadInstalledSkills = loadInstalledSkills;
+
+function mpPreviewLocal(name) {
+  // 本地 Skill 预览：打开新窗口展示 SKILL.md
+  const w = window.open("", "_blank", "width=700,height=500");
+  if (w) {
+    w.document.write(`<div style="padding:20px;font-family:monospace;font-size:13px;line-height:1.6;color:#e1e4eb;background:#0f1117;height:100%">加载中...</div>`);
+    fetch(`/api/marketplace/skill/local/${name}`).then(r => r.json()).then(data => {
+      const content = data.content || "无内容";
+      w.document.body.innerHTML = `<pre style="padding:20px;font-family:monospace;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word;color:#e1e4eb;background:#0f1117">${esc(content)}</pre>`;
+    }).catch(() => {
+      w.document.body.innerHTML = '<div style="padding:20px;color:#f44771">加载失败</div>';
+    });
+  }
+}
+window.mpPreviewLocal = mpPreviewLocal;
+
+async function uninstallSkill(name) {
+  if (!confirm(`确定卸载 "${name}"？\n\n此操作将删除 skills/${name}/ 目录。`)) return;
+  try {
+    const res = await fetch(`/api/marketplace/skills/${name}`, { method: "DELETE" });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || "删除失败");
+    }
+    toast(`已卸载 ${name}`, "success");
+    loadInstalledSkills();
+    loadAgents();
+    // 刷新搜索结果（更新已安装状态）
+    if (mpHasSearched) mpSearch(document.getElementById("mpSearch").value.trim());
+  } catch (e) {
+    toast("卸载失败: " + e.message, "error");
+  }
+}
+window.uninstallSkill = uninstallSkill;
 
 // ═════════════════════════════════════════════════════════════════════════════
 // ============== 工作台 ==============
@@ -1170,6 +1340,10 @@ async function workspaceSend() {
             const color = d.allowed === false ? "var(--danger)" : "var(--success)";
             bubble.innerHTML += `<div class="tool-call-msg" style="color:${color}">${d.allowed === false ? '✘' : '✔'} ${esc(d.name)}: ${esc(resultPreview)}</div>`;
             $("#wsMessages").scrollTop = $("#wsMessages").scrollHeight;
+          }
+          else if (data.event === "ask_user") {
+            const d = data.data;
+            showAskUser(wsActiveThreadId, d.call_id, d.questions || []);
           }
           else if (data.event === "tool_confirm") {
             const d = data.data;

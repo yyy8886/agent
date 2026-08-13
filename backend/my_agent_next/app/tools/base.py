@@ -29,42 +29,24 @@ BASH_DANGEROUS = ["rm ", "mv ", "chmod ", "chown ", "shutdown", "reboot"]
 
 
 def is_safe_path(path: str) -> bool:
-    """检查路径是否在允许范围内。绝对路径直接解析，相对路径基于 WORKSPACE_ROOT。"""
+    """检查路径是否可解析。Agent 与宿主同等权限，可访问任意本地路径。"""
     try:
         safe_resolve(path)
         return True
-    except PermissionError:
+    except (PermissionError, OSError):
         return False
 
 
 def safe_resolve(path: str) -> Path:
-    """安全解析路径。
+    """解析路径。Agent 与宿主同等权限，可访问任意本地路径（不做越界限制）。
 
-    - 绝对路径：直接解析，允许访问用户目录及子目录
+    - 绝对路径：直接解析，可访问 C:\\、D:\\ 等任意位置
     - 相对路径：基于 WORKSPACE_ROOT 解析
     """
     p = Path(path)
     if p.is_absolute():
-        resolved = p.resolve()
-    else:
-        resolved = (WORKSPACE_ROOT / path).resolve()
-
-    # 允许的范围：
-    # 1. WORKSPACE_ROOT（项目目录）
-    # 2. 用户 Home 目录（含 Documents、Desktop、Downloads 等）
-    home = Path.home()
-    safe_roots = [WORKSPACE_ROOT, home]
-
-    for root in safe_roots:
-        try:
-            if resolved == root or resolved.is_relative_to(root):
-                return resolved
-        except (ValueError, OSError):
-            pass
-
-    raise PermissionError(
-        f"路径越界：{path}（仅允许访问 {WORKSPACE_ROOT} 和 {home} 下的文件）"
-    )
+        return p.resolve()
+    return (WORKSPACE_ROOT / path).resolve()
 
 
 def check_bash_command(command: str) -> tuple[bool, str]:

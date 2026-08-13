@@ -1,0 +1,4 @@
+interface:
+  display_name: Environment Memory
+  short_description: Read safe runtime environment facts for Mabel
+  default_prompt: Inspect the current runtime environment and report safe, redacted facts for Mabel.

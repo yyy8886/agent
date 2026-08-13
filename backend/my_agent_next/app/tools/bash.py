@@ -1,40 +1,13 @@
-# app/tools/bash.py — 执行 shell 命令
+# app/tools/bash.py — 使用当前平台的原生命令行执行命令
 # =============================================================================
 
 import os
-import shutil
 import subprocess
+import sys
 
 from langchain_core.tools import tool
 
 from .base import WORKSPACE_ROOT, check_bash_command, is_dangerous_command, truncate_output
-
-
-def _resolve_bash() -> str | None:
-    """定位 git-bash 可执行文件。
-
-    用 bash（而非 cmd.exe）执行命令有三个好处：
-      1. 路径一致 —— bash 的 `pwd`/`ls` 输出 `/c/...`，`cd /c/...` 也能用；
-         cmd.exe 下这些 Unix 工具虽在 PATH 里，但 `cd`/`copy` 又需要 Windows 语法，造成混乱。
-      2. 多行命令（含 `python -c "..."` 内嵌换行与引号）能正确执行，
-         cmd.exe 会逐行切分、破坏引号，导致静默无输出。
-      3. 找到正确的 Python（venv 3.12），而非注册表 PATH 里的旧版本。
-    找不到 bash 时退回 cmd.exe。
-    """
-    bash = shutil.which("bash")
-    if bash:
-        return bash
-    for p in (
-        r"C:\Program Files\Git\bin\bash.exe",
-        r"C:\Program Files\Git\usr\bin\bash.exe",
-        r"C:\Program Files (x86)\Git\bin\bash.exe",
-    ):
-        if os.path.isfile(p):
-            return p
-    return None
-
-
-_BASH = _resolve_bash()
 
 
 def _windows_registry_path() -> str:
@@ -65,7 +38,10 @@ def _windows_registry_path() -> str:
 
 @tool
 def run_bash(command: str, timeout: int = 30) -> str:
-    """执行 shell 命令并返回输出。命令在工作目录中执行。
+    """使用当前平台的原生命令行执行命令并返回输出。
+
+    Windows 使用 Windows PowerShell；Linux/macOS 使用 /bin/bash 或 /bin/sh。
+    Windows 不调用 WSL、Git Bash 或 bash.exe。
 
     Args:
         command: 要执行的 shell 命令
@@ -79,11 +55,33 @@ def run_bash(command: str, timeout: int = 30) -> str:
     timeout = min(max(timeout, 1), 300)
 
     try:
-        if _BASH and os.name == "nt":
-            # 用 git-bash 执行：路径一致 + 多行命令正确 + 正确的 Python 版本。
-            env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+        env = {
+            **os.environ,
+            "PYTHONUNBUFFERED": "1",
+            "PYTHONIOENCODING": "utf-8",
+        }
+        # 子命令中的 `python` 必须与运行后端的解释器一致。后端从项目
+        # .venv 启动时，这会把 .venv/Scripts（Linux 为 .venv/bin）置于 PATH 首位。
+        runtime_bin = os.path.dirname(sys.executable)
+        path_separator = ";" if os.name == "nt" else ":"
+        env["PATH"] = runtime_bin + path_separator + env.get("PATH", "")
+        if os.name == "nt":
+            # 始终使用 Windows 原生命令行，避免 PATH 中的 bash.exe 启动 WSL。
+            reg_path = _windows_registry_path()
+            if reg_path:
+                # 保留服务进程（尤其是项目 .venv）的 PATH 优先级，只在末尾补充
+                # 服务启动后新安装的 Windows CLI 路径。
+                env["PATH"] = env["PATH"] + ";" + reg_path
+            utf8_prefix = (
+                "[Console]::InputEncoding=[Text.UTF8Encoding]::new();"
+                "[Console]::OutputEncoding=[Text.UTF8Encoding]::new();"
+                "$OutputEncoding=[Text.UTF8Encoding]::new();"
+            )
             result = subprocess.run(
-                [_BASH, "-lc", command],
+                [
+                    "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive",
+                    "-ExecutionPolicy", "Bypass", "-Command", utf8_prefix + command,
+                ],
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
@@ -93,17 +91,13 @@ def run_bash(command: str, timeout: int = 30) -> str:
                 env=env,
             )
         else:
-            env = {**os.environ, "PYTHONUNBUFFERED": "1"}
-            if os.name == "nt":
-                # 合并注册表中的最新系统 PATH，确保能找到新安装的 CLI 工具
-                reg_path = _windows_registry_path()
-                if reg_path:
-                    env["PATH"] = reg_path + ";" + os.environ.get("PATH", "")
+            shell = "/bin/bash" if os.path.isfile("/bin/bash") else "/bin/sh"
             result = subprocess.run(
-                command,
-                shell=True,
+                [shell, "-lc", command],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=timeout,
                 cwd=str(WORKSPACE_ROOT),
                 env=env,

@@ -301,6 +301,31 @@ index.html — My Agent Next 管理中心
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
+  /* Tool log — collapsible list of tools/skills the agent called */
+  .tool-log {
+    margin: 4px 0; border: 1px solid var(--border);
+    border-radius: var(--radius-sm); overflow: hidden;
+  }
+  .tool-log-header {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 10px; cursor: pointer; user-select: none;
+    font-size: .75rem; color: var(--text-dim);
+    background: rgba(255,255,255,.02);
+  }
+  .tool-log-header:hover { color: var(--text); }
+  .tool-log-header .arrow { display: inline-block; transition: transform .15s; }
+  .tool-log.open .tool-log-header .arrow { transform: rotate(90deg); }
+  .tool-log-body {
+    display: none; padding: 6px 10px; border-top: 1px solid var(--border);
+    font-size: .72rem; font-family: monospace; line-height: 1.6;
+    max-height: 200px; overflow-y: auto;
+  }
+  .tool-log.open .tool-log-body { display: block; }
+  .tool-log-item { display: flex; gap: 6px; margin: 2px 0; color: var(--text-dim); }
+  .tool-log-item .tl-name { color: var(--warning); flex-shrink: 0; font-weight: 600; }
+  .tool-log-item .tl-skill { color: var(--accent); flex-shrink: 0; }
+  .tool-log-item .tl-detail { color: var(--text-dim); word-break: break-all; min-width: 0; }
+
   @media (max-width: 500px) {
     body { padding: 14px; }
     .cards-grid { grid-template-columns: 1fr; }
@@ -1165,8 +1190,15 @@ async function workspaceInit() {
     if (!res.ok) return;
     _wsAgents = await res.json();
     const sel = $("#wsAgentSelect");
+    // 记住之前的选择：下拉框当前值优先，其次 localStorage 持久化的值
+    const prev = sel.value || localStorage.getItem("wsActiveAgentId") || "";
     sel.innerHTML = '<option value="">-- 请选择 --</option>' +
       _wsAgents.filter(a => a.enabled).map(a => `<option value="${esc(a.id)}">${esc(a.name)} (${esc(a.id)})</option>`).join("");
+    // 恢复之前的选择（若该 agent 仍启用且在列表中）
+    if (prev && _wsAgents.some(a => a.enabled && a.id === prev)) {
+      sel.value = prev;
+      workspaceOnAgentChange();
+    }
   } catch(e) {}
 }
 window.workspaceInit = workspaceInit;
@@ -1174,15 +1206,24 @@ window.workspaceInit = workspaceInit;
 async function workspaceOnAgentChange() {
   const agentId = $("#wsAgentSelect").value;
   if (!agentId) {
+    localStorage.removeItem("wsActiveAgentId");
     $("#wsThreadList").innerHTML = '<div class="ws-empty-threads">请先选择 Agent</div>';
     workspaceShowPlaceholder();
     return;
   }
+  localStorage.setItem("wsActiveAgentId", agentId);
   // 加载该 Agent 的线程列表
   try {
     const res = await fetch(`/api/chat/threads?agent_id=${agentId}`);
     wsThreads = await res.json();
     workspaceRenderThreadList();
+    // 恢复该 agent 上次打开的线程（若存在且仍属于该 agent）
+    const savedThread = localStorage.getItem("wsActiveThreadId");
+    if (savedThread && wsThreads.some(t => t.id === savedThread)) {
+      workspaceOpenThread(savedThread);
+    } else {
+      workspaceShowPlaceholder();
+    }
   } catch(e) {}
 }
 window.workspaceOnAgentChange = workspaceOnAgentChange;
@@ -1217,15 +1258,14 @@ async function workspaceNewThread() {
     if (!res.ok) throw new Error((await res.json()).detail);
     const thread = await res.json();
     wsThreads.unshift(thread);
-    wsActiveThreadId = thread.id;
-    workspaceRenderThreadList();
-    workspaceLoadMessages(thread.id);
+    workspaceOpenThread(thread.id);
   } catch(e) { toast("创建失败: "+e.message, "error"); }
 }
 window.workspaceNewThread = workspaceNewThread;
 
 async function workspaceOpenThread(id) {
   wsActiveThreadId = id;
+  localStorage.setItem("wsActiveThreadId", id);
   workspaceRenderThreadList();
   workspaceLoadMessages(id);
 }
@@ -1238,6 +1278,7 @@ async function workspaceDeleteThread(id) {
     wsThreads = wsThreads.filter(t => t.id !== id);
     if (wsActiveThreadId === id) {
       wsActiveThreadId = null;
+      localStorage.removeItem("wsActiveThreadId");
       workspaceShowPlaceholder();
     }
     workspaceRenderThreadList();
@@ -1278,6 +1319,7 @@ function workspaceShowPlaceholder() {
   $("#wsMessages").innerHTML = "";
   $("#wsInputArea").style.display = "none";
   wsActiveThreadId = null;
+  localStorage.removeItem("wsActiveThreadId");
 }
 
 async function workspaceSend() {
@@ -1299,30 +1341,103 @@ async function workspaceSend() {
   const agentName = _wsAgents.find(a => a.id === ($("#wsAgentSelect").value))?.name || "AI";
   let bubbleCreated = false;
   let thinkingShown = false;
+  let toolLogCount = 0;
 
   function ensureBubble() {
     if (bubbleCreated) return;
     bubbleCreated = true;
-    $("#wsMessages").innerHTML += `<div class="ws-msg assistant" id="${aiBubbleId}">
-      <div class="ws-msg-label">${agentName}</div>
-      <div class="ws-msg-bubble"></div>
-    </div>`;
+    // 用 join("") 拼成单行，避免模板字符串换行在 pre-wrap 下被渲染成多余空白
+    const html = [
+      `<div class="ws-msg assistant" id="${aiBubbleId}">`,
+      `<div class="ws-msg-label">${agentName}</div>`,
+      `<div class="ws-msg-bubble">`,
+      `<div class="ws-text"></div>`,
+      `<div class="thinking-slot"></div>`,
+      `<div class="tool-log" id="${aiBubbleId}-tool-log" style="display:none">`,
+      `<div class="tool-log-header" onclick="toggleToolLog('${aiBubbleId}')">`,
+      `<span class="arrow">▸</span>`,
+      `<span class="tl-count">已调用 0 个工具/技能</span>`,
+      `</div>`,
+      `<div class="tool-log-body"></div>`,
+      `</div>`,
+      `</div>`,
+      `</div>`,
+    ].join("");
+    $("#wsMessages").innerHTML += html;
   }
 
   function showThinking() {
     ensureBubble();
     if (thinkingShown) return;
     thinkingShown = true;
-    const bubble = document.querySelector(`#${aiBubbleId} .ws-msg-bubble`);
-    bubble.innerHTML += `<div class="thinking-msg" id="${aiBubbleId}-thinking"><span>正在思考</span><span class="thinking-spinner"></span></div>`;
+    const slot = document.querySelector(`#${aiBubbleId} .thinking-slot`);
+    slot.innerHTML = `<div class="thinking-msg" id="${aiBubbleId}-thinking"><span>正在思考</span><span class="thinking-spinner"></span></div>`;
     $("#wsMessages").scrollTop = $("#wsMessages").scrollHeight;
   }
 
   function clearThinking() {
     if (!thinkingShown) return;
     thinkingShown = false;
-    const el = document.querySelector(`#${aiBubbleId}-thinking`);
-    if (el) el.remove();
+    const slot = document.querySelector(`#${aiBubbleId} .thinking-slot`);
+    if (slot) slot.innerHTML = "";
+  }
+
+  // 从工具参数里识别用到的 skill（如 skills/drawio-skill/... 或执行 skill 脚本）
+  function extractSkill(args) {
+    try {
+      const text = JSON.stringify(args || {});
+      const m = text.match(/skills[\\/]([a-z0-9_-]+)[\\/]/);
+      if (m) return m[1];
+      // 也识别以 skill 目录开头的路径参数
+      if (args && args.path && /(?:^|[\\/])skills[\\/]/.test(args.path)) {
+        const p = args.path.match(/skills[\\/]([a-z0-9_-]+)[\\/]/);
+        if (p) return p[1];
+      }
+    } catch(e) {}
+    return null;
+  }
+
+  // 从工具参数里提取一行可读摘要
+  function extractDetail(args) {
+    if (!args) return "";
+    if (args.path) return String(args.path);
+    if (args.command) return String(args.command).substring(0, 80);
+    if (args.pattern) return String(args.pattern);
+    if (args.old_string) return String(args.old_string).substring(0, 60);
+    try {
+      return JSON.stringify(args).substring(0, 80);
+    } catch(e) { return ""; }
+  }
+
+  function addToolLog(name, args) {
+    ensureBubble();
+    toolLogCount++;
+    const log = document.querySelector(`#${aiBubbleId}-tool-log`);
+    const skill = extractSkill(args);
+    const detail = extractDetail(args);
+    log.style.display = "";
+    log.querySelector(".tl-count").textContent = `已调用 ${toolLogCount} 个工具/技能`;
+    const item = document.createElement("div");
+    item.className = "tool-log-item";
+    item.innerHTML = `<span class="tl-name">🔧 ${esc(name)}</span>` +
+      (skill ? `<span class="tl-skill">[${esc(skill)}]</span>` : "") +
+      (detail ? `<span class="tl-detail">${esc(detail)}</span>` : "");
+    log.querySelector(".tool-log-body").appendChild(item);
+    $("#wsMessages").scrollTop = $("#wsMessages").scrollHeight;
+  }
+
+  function addSkillLog(name, summary) {
+    ensureBubble();
+    toolLogCount++;
+    const log = document.querySelector(`#${aiBubbleId}-tool-log`);
+    log.style.display = "";
+    log.querySelector(".tl-count").textContent = `已调用 ${toolLogCount} 个工具/技能`;
+    const item = document.createElement("div");
+    item.className = "tool-log-item";
+    item.innerHTML = `<span class="tl-name" style="color:var(--accent)">🧠 ${esc(name)}</span>` +
+      (summary ? `<span class="tl-detail">${esc(summary)}</span>` : "");
+    log.querySelector(".tool-log-body").appendChild(item);
+    $("#wsMessages").scrollTop = $("#wsMessages").scrollHeight;
   }
 
   // 发送后立即显示"正在思考"，直到第一个 token / 工具调用到来
@@ -1360,19 +1475,15 @@ async function workspaceSend() {
 
           if (data.event === "tool_call") {
             clearThinking();
-            ensureBubble();
             const d = data.data;
-            const bubble = document.querySelector(`#${aiBubbleId} .ws-msg-bubble`);
-            bubble.innerHTML += `<div class="tool-call-msg">🔧 ${esc(d.name)}</div>`;
-            $("#wsMessages").scrollTop = $("#wsMessages").scrollHeight;
+            addToolLog(d.name, d.args);
+          }
+          else if (data.event === "skill") {
+            const d = data.data;
+            addSkillLog(d.name, d.summary || d.action || "");
           }
           else if (data.event === "tool_result") {
-            const d = data.data;
-            const bubble = document.querySelector(`#${aiBubbleId} .ws-msg-bubble`);
-            const resultPreview = (d.result || "").substring(0, 200);
-            const color = d.allowed === false ? "var(--danger)" : "var(--success)";
-            bubble.innerHTML += `<div class="tool-call-msg" style="color:${color}">${d.allowed === false ? '✘' : '✔'} ${esc(d.name)}: ${esc(resultPreview)}</div>`;
-            $("#wsMessages").scrollTop = $("#wsMessages").scrollHeight;
+            // 工具已执行完毕，回到"思考"状态等待下一步输出
             showThinking();
           }
           else if (data.event === "ask_user") {
@@ -1387,8 +1498,8 @@ async function workspaceSend() {
           else if (data.token) {
             clearThinking();
             ensureBubble();
-            const bubble = document.querySelector(`#${aiBubbleId} .ws-msg-bubble`);
-            bubble.innerHTML += esc(data.token);
+            const text = document.querySelector(`#${aiBubbleId} .ws-text`);
+            text.innerHTML += esc(data.token);
             $("#wsMessages").scrollTop = $("#wsMessages").scrollHeight;
           }
           else if (data.done) {
@@ -1397,8 +1508,8 @@ async function workspaceSend() {
           else if (data.error) {
             clearThinking();
             ensureBubble();
-            const bubble = document.querySelector(`#${aiBubbleId} .ws-msg-bubble`);
-            bubble.innerHTML += `<br/>[错误: ${esc(data.error)}]`;
+            const text = document.querySelector(`#${aiBubbleId} .ws-text`);
+            text.innerHTML += `<br/>[错误: ${esc(data.error)}]`;
           }
         } catch(e) {}
       }
@@ -1406,7 +1517,7 @@ async function workspaceSend() {
   } catch(e) {
     clearThinking();
     ensureBubble();
-    document.querySelector(`#${aiBubbleId} .ws-msg-bubble`).textContent = `请求失败: ${esc(e.message)}`;
+    document.querySelector(`#${aiBubbleId} .ws-text`).textContent = `请求失败: ${esc(e.message)}`;
   }
 
   wsStreaming = false;
@@ -1417,6 +1528,13 @@ async function workspaceSend() {
   workspaceOnAgentChange();
 }
 window.workspaceSend = workspaceSend;
+
+// 展开 / 收起工具调用折叠栏（供气泡内 onclick 调用）
+function toggleToolLog(bubbleId) {
+  const log = document.querySelector(`#${bubbleId}-tool-log`);
+  if (log) log.classList.toggle("open");
+}
+window.toggleToolLog = toggleToolLog;
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 初始化

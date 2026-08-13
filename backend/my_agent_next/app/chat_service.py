@@ -311,7 +311,7 @@ class ChatService:
                         continue
 
                     # ── 执行工具 ──────────────────────────────────────
-                    result = self._execute_tool(tool_name, tool_args)
+                    result = await self._execute_tool(tool_name, tool_args)
 
                     yield f"data: {json.dumps({'event': 'tool_result', 'data': {'name': tool_name, 'result': str(result)[:500]}})}\n\n"
 
@@ -336,6 +336,22 @@ class ChatService:
             # 达到最大迭代次数
             yield f"data: {json.dumps({'error': f'达到最大工具调用次数（{MAX_AGENT_ITERATIONS}）'})}\n\n"
 
+        # ── 自动提取用户记忆（在 done 之前，让前端折叠栏能展示） ──
+        if agent and "user-memory" in (agent.skills or []) and full_response:
+            from .user_memory_service import UserMemoryService
+            try:
+                saved = UserMemoryService().extract_and_save(
+                    user_content, full_response, profile
+                )
+                if saved:
+                    print(f"[Memory] 提取到 {len(saved)} 条新记忆: {saved}")
+                    saved_text = '；'.join(str(s) for s in saved)
+                    if len(saved_text) > 120:
+                        saved_text = saved_text[:120] + '…'
+                    yield f"data: {json.dumps({'event': 'skill', 'data': {'name': 'user-memory', 'summary': f'提取到 {len(saved)} 条新记忆：{saved_text}'}})}\n\n"
+            except Exception:
+                pass
+
         # ── 结束 ──────────────────────────────────────────────────────
         yield f"data: {json.dumps({'done': True})}\n\n"
 
@@ -350,26 +366,19 @@ class ChatService:
         # 自动 compact
         self._auto_compact(thread_id, profile)
 
-        # 自动提取用户记忆
-        if agent and "user-memory" in (agent.skills or []) and full_response:
-            from .user_memory_service import UserMemoryService
-            try:
-                saved = UserMemoryService().extract_and_save(
-                    user_content, full_response, profile
-                )
-                if saved:
-                    print(f"[Memory] 提取到 {len(saved)} 条新记忆: {saved}")
-            except Exception:
-                pass
-
     @staticmethod
-    def _execute_tool(tool_name: str, tool_args: dict) -> str:
-        """执行工具并返回结果。"""
+    async def _execute_tool(tool_name: str, tool_args: dict) -> str:
+        """执行工具并返回结果。
+
+        工具（尤其是 run_bash 的 subprocess.run）是同步阻塞调用，若在 async
+        生成器里直接执行会卡死整个事件循环（表现为所有请求超时、前端流中断）。
+        这里放到线程池执行，避免阻塞事件循环。
+        """
         tool = TOOL_BY_NAME.get(tool_name)
         if not tool:
             return f"未知工具：{tool_name}"
         try:
-            result = tool.invoke(tool_args)
+            result = await asyncio.to_thread(tool.invoke, tool_args)
             return str(result)
         except Exception as exc:
             return f"工具执行错误：{exc}"

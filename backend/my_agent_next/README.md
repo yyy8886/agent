@@ -1,152 +1,161 @@
 # my_agent_next
 
-这是桌面 Agent 的重新设计版本，按可验证的小步骤构建。
+这是 AI 桌面助手的新版本后端。项目采用“先做一个能运行的小功能，验收后再增加下一层”的方式开发。
 
-当前完成范围：**模型 API 配置管理后端、API 管理页面和真实模型测速**。暂时没有 Agent、工作流、Skill 或聊天。
+当前已经具备：
 
-## 当前结构
+- OpenAI、DeepSeek、Ollama 和 OpenAI 兼容代理的 API 配置管理
+- API 管理页面与真实模型测速
+- Agent 创建、编辑、删除、人设配置、模型绑定与 Skill 绑定
+- 单 Agent 多轮聊天、会话管理和 SQLite 历史记录
+- 长对话压缩摘要和用户长期记忆
+- LangChain Tool Calling 与模型—工具循环
+- 文件、搜索、网页、命令执行和向用户提问等 Tool
+- 手动确认与自动执行两种工具权限模式
+- `SKILL.md` 加载及 `scripts/`、`references/` 资源提示
+- SkillsMP、ClawHub 和 GitHub Skill 搜索、查看、安装与卸载接口
+- draw.io Skill 及其脚本资源
+
+当前尚未完成：
+
+- LangGraph 多 Agent 工作流
+- 完整的 Skill 渐进加载、系统/用户目录分离和安全脚本执行器
+- LlamaIndex 知识库
+- Electron 桌宠前端
+- 跨平台打包和发布
+
+## 技术栈
+
+| 技术 | 用途 |
+| --- | --- |
+| Python 3.11/3.12 | 后端语言 |
+| FastAPI + Uvicorn | HTTP 接口、页面服务和 SSE 聊天接口 |
+| HTML + CSS + JavaScript | 当前 Web 管理台和聊天页面 |
+| LangChain | 消息、模型统一接口、Tool Calling |
+| OpenAI / DeepSeek / Ollama | 可切换的模型提供方 |
+| SQLite | API、Agent、会话、消息和用户记忆持久化 |
+| YAML | 服务和聊天参数配置 |
+| python-dotenv | 从 `.env` 读取真实 API Key |
+| httpx | 网页读取和 Skill 市场请求 |
+| draw.io Desktop CLI | `.drawio` 生成、检查和导出 |
+
+项目依赖中还保留了 MCP 与 LangGraph 相关库，但当前 `my_agent_next` 的主要聊天流程是用 Python 循环编排，尚未迁移为 LangGraph。
+
+## 分层结构
+
+```text
+浏览器页面
+    ↓ HTTP / SSE
+FastAPI 接口层
+    ↓
+Service 业务层
+    ↓
+Repository 数据层
+    ↓
+SQLite
+```
+
+- 接口层接收请求和返回响应。
+- Service 决定业务应该怎样执行。
+- Repository 只负责从 SQLite 读取和保存数据。
+- 页面只处理显示和用户操作，不直接访问数据库。
+
+## 当前目录
 
 ```text
 my_agent_next/
 ├─ app/
-│  ├─ api_profile.py
-│  ├─ api_profile_repository.py
-│  ├─ api_profile_service.py
-│  ├─ web_server.py
-│  └─ static/
-│     └─ index.html
-├─ data/
-│  └─ app.db                  # 首次运行自动创建，不提交密钥
-├─ scripts/
-│  └─ seed_api_profiles.py
-└─ tests/
-   └─ test_api_profile_service.py
+│  ├─ api_profile*.py          # 模型 API 配置领域、业务与存储
+│  ├─ agent_profile*.py        # Agent 配置领域、业务与存储
+│  ├─ chat_api.py              # 会话和 SSE 聊天接口
+│  ├─ chat_service.py          # 消息组装、模型调用和工具循环
+│  ├─ chat_repository.py       # 会话与消息存储
+│  ├─ user_memory*.py          # 用户长期记忆
+│  ├─ marketplace_api.py       # Skill 市场搜索、安装与卸载
+│  ├─ tools/                   # 模型可调用的 Tool
+│  ├─ static/index.html        # 当前 Web 控制台
+│  └─ web_server.py            # FastAPI 应用入口
+├─ skills/
+│  ├─ _loader.py               # 解析本地 SKILL.md
+│  ├─ user-memory/             # 项目自有记忆 Skill
+│  └─ ...                      # 内置或用户安装的其他 Skill
+├─ data/app.db                 # SQLite 数据库
+├─ scripts/                    # 项目维护脚本
+├─ tests/                      # 自动测试
+└─ config.yaml                 # 服务和聊天参数
 ```
 
-API Profile 管理的是模型连接配置，不是 HTTP 路由：
+## 一次聊天如何运行
 
-- 显示名称与唯一 ID
-- provider：`openai`、`deepseek`、`ollama`
-- 模型名称和 base URL
-- temperature、timeout、max retries
-- API Key 的环境变量名称
-- 是否启用、是否为默认配置
+```text
+用户发送消息
+→ FastAPI 接收
+→ 找到 Agent 和绑定模型
+→ 组装人设、Skill、长期记忆、摘要和最近历史
+→ LangChain 调用模型
+→ 模型需要信息时提出 Tool Call
+→ 权限层确认是否允许
+→ 执行 Tool，把 ToolMessage 交还模型
+→ 模型继续思考，直到输出最终回答
+→ SSE 将结果发送给页面
+→ SQLite 保存消息并按需要压缩历史、提取记忆
+```
 
-API Key 本身只存放在 `.env` 或操作系统安全存储中，不进入 SQLite，也不会由管理层返回。
+当前所谓“流式输出”是模型完整返回后再分块发送，并非模型原生 token streaming。
 
-## 开发原则
+## Tool 与 Skill
 
-- 一次只完成一个阶段，验证通过后停止，等待确认再继续。
-- 页面只负责显示和用户操作，不直接读写 SQLite，也不包含 Agent 业务逻辑。
-- HTTP 接口负责接收请求，Service 负责业务规则，Repository 负责数据库读写。
-- API Key 不写入数据库、配置页面、日志或 Git，只记录对应的环境变量名称。
-- 每个阶段都需要最小可运行示例和自动测试；模型测速必须额外调用真实模型验证。
-- 优先复用课程中已经学习的 LangChain、LangGraph、MCP、多轮对话和状态保存方式。
+```text
+模型 = 负责思考的大脑
+Skill = 告诉模型怎样完成专业任务的说明书
+Tool = 真正读取文件、访问网页或运行程序的手
+```
 
-## 开发计划
+当前 Tool 包括文件读写、编辑、搜索、网页访问、`run_bash` 和向用户提问。所有模型目前绑定同一组 Tool；这是开发阶段实现，后续需要改成按 Agent 和 Skill 授予最小权限。
 
-### 阶段 1：API 管理后端（已完成）
+当前 Skill 会把完整 `SKILL.md` 注入模型，并列出附带的脚本和参考资料。下一步需要解决 Codex Skill 中 `<this-skill-dir>`、`python3`、Codex 专用 Tool 等兼容问题，并增加安全的 `run_skill_script`。
 
-- 用 SQLite 保存 OpenAI、DeepSeek、Ollama 和 OpenAI 兼容接口的连接配置。
-- 支持新增、查询、修改、删除、启用和设置默认配置。
-- 保存模型名称、Base URL、temperature、timeout 和重试次数。
-- 数据库只保存 API Key 的环境变量名称。
+## 配置与密钥
 
-验收标准：CRUD 测试通过；任意时刻最多只有一个默认 API 配置。
+`config.yaml` 保存普通运行参数，例如服务端口、上下文长度和 Agent 循环次数。
 
-### 阶段 2：API 管理页面与真实测速（已完成，等待页面验收）
+SQLite 只保存 API Key 的环境变量名称：
 
-- 在 Web 页面查看和编辑 API 配置。
-- 点击“测速”后，使用该配置调用真实模型。
-- 向模型发送简短问候，并显示完整响应耗时、回答预览或错误。
-- 页面调用 HTTP API，不直接操作数据库。
+```text
+api_key_env = OPENAI_API_KEY
+```
 
-验收标准：至少选择一个已配置 API，在页面完成一次真实测速并得到模型回答。
+真正的 Key 放在 `backend/.env` 或未来的操作系统安全存储中：
 
-### 阶段 3：Agent 管理后端
+```text
+OPENAI_API_KEY=真实密钥
+```
 
-- 定义 Agent 的名称、身份、人设提示词、职责、使用的 API 配置和启用状态。
-- 建立 `agent.py`、`agent_repository.py`、`agent_service.py`。
-- 支持 Agent 的新增、查询、修改、删除和模型绑定。
-- 暂不加入工作流和 Skill，先保证单个 Agent 定义清晰。
+`.env` 必须加入 `.gitignore`，发布程序时也不能把开发者自己的 Key 打包进去。
 
-验收标准：能通过 Service 创建 Agent，并从 SQLite 正确读回完整设定。
+## 启动
 
-### 阶段 4：Agent 管理页面
+在 `backend` 目录激活虚拟环境后运行项目现有启动脚本：
 
-- 在页面中创建、编辑、删除和启停 Agent。
-- 从已有 API 配置中选择 Agent 使用的模型。
-- 编辑人设、职责和系统提示词。
-- 清楚显示 API 配置不可用、Agent 停用等状态。
+```powershell
+python run_server.py
+```
 
-验收标准：在页面创建一个 Agent，刷新页面后数据仍然存在且模型绑定正确。
+实际端口以启动脚本或 `config.yaml` 使用的入口为准。不要同时启动多个入口，否则可能出现同一个端口被多个 Python 进程占用。
 
-### 阶段 5：单 Agent 对话
+## 当前风险与下一步
 
-- 新增独立的单 Agent 对话页面。
-- 用户可以选择一个 Agent 开始多轮聊天。
-- 使用 LangChain 消息类型保存用户消息、AI 消息和系统消息。
-- 使用 SQLite 保存会话和历史记录，重新打开后可以继续对话。
-- 支持新建会话、切换会话和清空指定会话。
+1. 先修正 Skill 路径和运行时兼容，使 `drawio-skill` 能稳定找到自身脚本。
+2. 增加只允许运行 Skill 自带脚本的 `run_skill_script`，减少通用 `run_bash` 风险。
+3. 建立 `skills/.system/` 和用户安装 Skill 的来源规则。
+4. 按 Agent 与 Skill 分配 Tool，不再默认绑定全部 Tool。
+5. 为市场安装增加临时目录、路径检查、权限展示和失败回滚。
+6. 再用 LangGraph 实现多 Agent 分析、分派、执行、验证和人工确认。
 
-验收标准：Agent 能记住同一会话前面说过的信息；不同会话之间互不污染。
+## 开发纪律
 
-### 阶段 6：工作流与多 Agent 协作
-
-- 使用 LangGraph 构建分析、分派、执行、验证和最终回答流程。
-- 分开实现 `pipeline.py` 与 `pipeline_manager.py`。
-- 支持配置“哪个 Agent 可以把任务交给哪个 Agent”。
-- 对话页面分为“单 Agent 对话”和“工作流处理”两个入口。
-- 快速模式允许前台 Agent 直接回答，完整模式经过分析与验证节点。
-
-验收标准：页面可配置一条简单工作流，并能看到任务经过的 Agent 与最终结果。
-
-### 阶段 7：Tool 与 MCP
-
-- 接入本地 Python Tool 和 MCP Server。
-- 每个 Agent 可以绑定允许使用的 Tool 与 MCP 工具。
-- MCP 服务放入独立目录，方便开发、测试和后续随应用打包。
-- 为工具调用加入超时、错误提示和调用记录。
-
-验收标准：Agent 可以根据问题决定是否调用工具，并正确取得 MCP 返回结果。
-
-### 阶段 8：Skill 系统
-
-- 定义统一的 Skill 元数据、安装状态、启用状态和来源信息。
-- 每个 Agent 理论上可使用所有 Skill，但默认只启用其职业 Skill。
-- 在配置中简易设置每个 Agent 允许使用和默认开启的 Skill。
-- 支持全局封印 Skill，被封印后任何 Agent 都不能调用。
-- 接入绘图师和 draw.io Skill，生成可编辑的 `.drawio` 文件。
-
-验收标准：同一个 Skill 可对不同 Agent 分别启用或关闭；全局封印优先级最高。
-
-### 阶段 9：Skill 市场
-
-- 在平台内搜索 SkillsMP 和 ClawHub。
-- 将搜索结果转换为统一的展示格式，但保留来源、作者和原始地址。
-- 用户点击安装后，下载并校验 Skill，再登记到本地 Skill 仓库。
-- 安装前显示将写入的文件和需要的权限，失败时不留下半安装状态。
-
-验收标准：能从至少一个市场搜索、预览、安装、启用和卸载一个 Skill。
-
-### 阶段 10：LlamaIndex 知识库
-
-- 使用 LlamaIndex 完成文档读取、索引、检索和引用。
-- 将知识检索能力交给“图书管理员”Agent。
-- 其他 Agent 可以通过工作流向图书管理员请求资料。
-- 检索结果必须包含来源，避免把 MCP Resource 与 RAG 索引混为一体。
-
-验收标准：导入本地文档后，Agent 能回答相关问题并给出引用来源。
-
-### 阶段 11：桌面应用与发布
-
-- 在 Web 功能稳定后再接 Electron 桌宠前端。
-- 将 Python 后端、本地 MCP 服务和所需运行资源一起打包。
-- 分别验证 Windows、macOS 和 Linux 的启动、路径、权限与更新方式。
-- 明确哪些组件随应用分发，避免要求最终用户另装 Python 或 Node.js。
-
-验收标准：全新系统环境安装后可以直接启动、聊天并调用内置工具。
-
-## 当前检查点
-
-下一步不是直接开发 Agent 管理，而是先由用户验收阶段 2 的 API 管理页面和真实模型测速。验收完成后，再开始阶段 3。
+- 每次只完成一个可验收步骤。
+- 修改原文件前先产生副本或可恢复版本。
+- Tool 调用默认由用户确认，尤其是 Bash、网络、安装与删除操作。
+- 市场 Skill 和网页内容属于不可信输入，不能自动获得完整系统权限。
+- 每个阶段同时补充说明、测试和真实运行验收。

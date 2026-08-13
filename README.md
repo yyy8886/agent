@@ -2,7 +2,7 @@
 
 这是一个以学习为目的的渐进式项目。最终目标是亲手完成一个 **Electron + Python** 的跨平台 AI 桌面助手：Electron 负责界面、动画和系统交互，Python 负责模型、Agent、RAG、记忆和工具调用。
 
-本仓库目前只提供学习路线，不预先生成项目代码。每一课都遵循同一个节奏：
+本仓库从课程示例逐步发展出了实验项目 `backend/my_agent_next`。课程仍然坚持由浅入深：前九课学习模型、消息、工具、MCP 和 LangGraph 基础；后续课程将这些知识组合成当前的 Agent 平台。每一课都遵循同一个节奏：
 
 1. 先说明这一课只解决什么问题。
 2. 你亲手创建或修改少量代码。
@@ -63,15 +63,18 @@ LlamaIndex (文档、索引、检索) + SQLite
 | 检索      | [10 LlamaIndex 文档与索引](backend/lecture/L10/README.md)  | 可查询的本地索引                         | 能解释文档、Node、Embedding 与索引 |
 | 检索      | [11 LlamaIndex 检索与引用](backend/lecture/L11/README.md)  | 带来源的文档问答                         | 能检查召回片段并核对引用           |
 | 混合      | [12 LlamaIndex 接入 LangGraph](backend/lecture/L12/README.md) | 可决策是否检索的 RAG 图                | 普通闲聊不检索，文档问题才检索     |
-| 服务      | [13 FastAPI 封装](backend/lecture/L13/README.md)           | `/health` 与 `/chat`                     | 可通过命令行请求接口               |
-| 服务      | [14 WebSocket 事件流](backend/lecture/L14/README.md)       | token/tool/retrieval/finished/error 事件 | 客户端能稳定接收完整事件序列       |
-| 桌面      | [15 Electron 最小窗口](backend/lecture/L15/README.md)      | 可运行桌面窗口                           | 主进程与渲染进程职责清楚           |
-| 桌面      | [16 Electron 启停 Python](backend/lecture/L16/README.md)   | 自动管理后端进程                         | 退出应用后无残留后端进程           |
-| 桌面      | [17 React 对话界面](backend/lecture/L17/README.md)         | 流式聊天 UI                              | 可输入、取消、重试并显示错误       |
-| 数据      | [18 SQLite 会话持久化](backend/lecture/L18/README.md)      | 历史会话                                 | 重启应用后仍可读取历史             |
-| 扩展      | [19 插件与权限](backend/lecture/L19/README.md)             | manifest + 授权                          | 未授权工具无法执行                 |
-| 多模态    | [20 STT/TTS](backend/lecture/L20/README.md)                | 语音输入输出                             | 可中断播放并处理设备异常           |
-| 工程      | [21 测试、打包与发布](backend/lecture/L21/README.md)       | 安装包                                   | 干净机器可安装、运行、卸载         |
+| 服务      | [13 FastAPI 与分层架构](backend/lecture/L13/README.md)     | API、Service、Repository 最小项目         | 能解释每一层的职责                 |
+| 服务      | [14 模型 API 管理与真实测速](backend/lecture/L14/README.md) | 多 provider 配置管理页面                  | 页面能调用真实模型并显示耗时       |
+| Agent     | [15 Agent 配置与管理页面](backend/lecture/L15/README.md)   | 可配置人设、模型和启用状态的 Agent        | 刷新后 Agent 配置仍存在            |
+| 对话      | [16 SQLite 会话、多轮历史与记忆](backend/lecture/L16/README.md) | 可恢复的单 Agent 多轮聊天              | 不同会话隔离且能记住用户信息       |
+| 服务      | [17 SSE 聊天事件与 Web 控制台](backend/lecture/L17/README.md) | 单 Agent 对话页面                       | 页面持续显示回答和错误事件         |
+| Tool      | [18 Tool Calling 循环与权限](backend/lecture/L18/README.md) | 模型—工具—模型循环与人工确认             | Tool 结果能交回模型形成最终回答    |
+| Skill     | [19 SKILL.md、Loader 与 Agent 绑定](backend/lecture/L19/README.md) | 本地 Skill 系统                       | 能解释 Skill 与 Tool 的区别        |
+| Skill     | [20 Skill 市场、安装与安全](backend/lecture/L20/README.md) | SkillsMP/ClawHub 搜索和安装               | 第三方 Skill 未授权时不能执行      |
+| 绘图      | [21 draw.io Skill 与脚本资源](backend/lecture/L21/README.md) | 可编辑 `.drawio` 与预览图               | Agent 能找到脚本并完成验证         |
+| LangGraph | [22 多 Agent 工作流与人工审批](backend/lecture/L22/README.md) | 分析、分派、执行、验证图                | 可观察状态、路由、循环和暂停       |
+| 桌面      | [23 Electron 桌宠与后端进程](backend/lecture/L23/README.md) | Electron 管理 Python 服务                | 退出应用后无残留后端进程           |
+| 工程      | [24 测试、打包与三端发布](backend/lecture/L24/README.md)   | Windows/macOS/Linux 安装包                | 干净机器可安装、运行、卸载         |
 
 ### 模型切换进阶内容安排
 

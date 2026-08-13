@@ -193,7 +193,7 @@ Generate:
 - ads-marketing — campaign concepts and ad creatives with audience, brand position, scene, and exact tagline/copy.
 - productivity-visual — slide, chart, workflow, and data-heavy business visuals.
 - logo-brand — logo/mark exploration, vector-friendly.
-- illustration-story — comics, children's book art, narrative scenes.
+- illustration-story — comics, children’s book art, narrative scenes.
 - stylized-concept — style-driven concept art, 3D/stylized renders.
 - historical-scene — period-accurate/world-knowledge scenes.
 

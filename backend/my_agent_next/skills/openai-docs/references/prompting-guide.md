@@ -23,7 +23,7 @@ When migrating an existing prompt, remove redundant scaffolding before adding ne
 Trim:
 
 - repeated statements of the same rule;
-- generic "be thorough," "be concise," or "think step by step" language;
+- generic “be thorough,” “be concise,” or “think step by step” language;
 - examples that do not change behavior;
 - process instructions for behavior the model already performs reliably;
 - tools and tool descriptions unrelated to the task.
@@ -82,14 +82,14 @@ Use concrete writing controls:
     caveats, and next steps. Trim introductions, repetition, generic reassurance,
     and optional background first.
 
-Avoid generic "be brief," "keep it short," or "use minimal text" instructions. GPT-5.6 is already biased toward compression, and generic brevity can make it omit required evidence or parts of an artifact.
+Avoid generic “be brief,” “keep it short,” or “use minimal text” instructions. GPT-5.6 is already biased toward compression, and generic brevity can make it omit required evidence or parts of an artifact.
 
 For customer-facing tone, prefer concrete guidance:
 
     Be direct and tactful. Acknowledge friction specifically when relevant.
     Avoid canned reassurance and unnecessary sign-offs.
 
-Avoid blanket language rules such as "always respond in the user's language" unless that is truly the product requirement. Specify the intended output language and when it should change.
+Avoid blanket language rules such as “always respond in the user's language” unless that is truly the product requirement. Specify the intended output language and when it should change.
 
 For editing, rewriting, summaries, and customer-facing drafts, tell the model what to preserve:
 
@@ -113,7 +113,7 @@ GPT-5.6 can be proactive and persistent. Define which level of action each reque
 
 Specify which local actions are safe without approval, such as reading files, inspecting logs, searching, editing in-scope code, and running non-destructive tests.
 
-Avoid repeating "ask first" throughout the prompt. Repetition can cause unnecessary permission checks even for safe, expected actions.
+Avoid repeating “ask first” throughout the prompt. Repetition can cause unnecessary permission checks even for safe, expected actions.
 
 For long-running work, define the current layer of work. Distinguish research, design, implementation, review, and external coordination so the model does not silently move from one layer to another.
 
@@ -151,7 +151,7 @@ Prefer direct tool calls when:
 - the final answer must preserve citations or native artifacts;
 - the workflow requires semantic judgment between calls.
 
-Do not rely on generic instructions such as "use Programmatic Tool Calling efficiently." State the bounded stage, eligible tools, output schema, retry limit, stop condition, and handoff back to direct model judgment.
+Do not rely on generic instructions such as “use Programmatic Tool Calling efficiently.” State the bounded stage, eligible tools, output schema, retry limit, stop condition, and handoff back to direct model judgment.
 
     Use Programmatic Tool Calling only for the bounded record-reduction stage.
     Call only the documented read-only tools. Filter and deduplicate the
@@ -163,7 +163,7 @@ Evaluate the final user-visible answer, not only the program result. Lower token
 
 ## Grounding, citations, and retrieval budgets
 
-For grounded answers, citation behavior should be part of the prompt. Define what needs support, what counts as enough evidence, and how to behave when evidence is missing. Absence of evidence should not automatically become a factual "no."
+For grounded answers, citation behavior should be part of the prompt. Define what needs support, what counts as enough evidence, and how to behave when evidence is missing. Absence of evidence should not automatically become a factual “no.”
 
     For ordinary Q&A, start with one broad search using short, discriminative
     keywords. If the top results contain enough support for the core request,

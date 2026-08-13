@@ -1,119 +1,165 @@
 #!/usr/bin/env node
 
-/**
- * Resolve the latest OpenAI model metadata by fetching the live latest-model
- * guide.  Prints a JSON object to stdout with keys:
- *
- *   model              {string}  - the current recommended model ID
- *   migrationGuideUrl  {string}  - URL of the current migration guide
- *   promptingGuideUrl  {string}  - URL of the current prompting guide
- *   fetchedAt          {string}  - ISO-8601 timestamp
- *
- * Environment:
- *   LATEST_MODEL_URL   override the default guide URL
- *   LATEST_MODEL_TOKEN optional Bearer token for the request
- */
+// Keep this entrypoint CommonJS-safe when the skill is copied into a type=module repo.
 
-"use strict";
+const fs = require("node:fs/promises");
+const path = require("node:path");
 
 const DEFAULT_URL =
-  process.env.LATEST_MODEL_URL ??
-  "https://developers.openai.com/api/docs/guides/latest-model";
+  "https://developers.openai.com/api/docs/guides/latest-model.md";
+const DEFAULT_BASE_URL = "https://developers.openai.com";
 
-async function fetchGuide(url, token) {
-  const headers = { Accept: "application/json" };
-  if (token) headers.Authorization = `Bearer ${token}`;
+function parseArgs(argv) {
+  const args = {
+    source: process.env.LATEST_MODEL_URL || DEFAULT_URL,
+    baseUrl: process.env.LATEST_MODEL_BASE_URL || DEFAULT_BASE_URL,
+  };
 
-  const res = await fetch(url, { headers });
-  if (!res.ok) {
-    throw new Error(`Failed to fetch ${url}: status ${res.status}`);
+  for (let i = 2; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === "--source" || arg === "--url") {
+      args.source = argv[i + 1];
+      i += 1;
+    } else if (arg === "--base-url") {
+      args.baseUrl = argv[i + 1];
+      i += 1;
+    }
   }
-  return res.json();
+
+  return args;
 }
 
-/**
- * Extract the first model ID found in the guide's JSON structure.
- * Walks common shapes: body.model, body.recommendedModel, body.currentModel,
- * and top-level model.
- */
-function extractModel(body) {
-  if (typeof body !== "object" || body === null) return undefined;
-
-  // Direct model field on body.
-  if (typeof body.model === "string" && body.model) return body.model;
-  if (typeof body.recommendedModel === "string" && body.recommendedModel) {
-    return body.recommendedModel;
-  }
-  if (typeof body.currentModel === "string" && body.currentModel) {
-    return body.currentModel;
+async function readSource(source) {
+  if (source.startsWith("file://")) {
+    return fs.readFile(new URL(source), "utf8");
   }
 
-  // Walk the document looking for a model slug (e.g. gpt-5.6-sol).
-  const slugRe = /^(gpt-\d[.\w-]*[a-z]+)\b/i;
-  const stack = [body];
-  const visited = new Set();
+  if (!/^https?:\/\//.test(source)) {
+    return fs.readFile(path.resolve(source), "utf8");
+  }
 
-  while (stack.length) {
-    const node = stack.pop();
-    if (visited.has(node)) continue;
-    visited.add(node);
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await fetch(source, {
+        headers: { accept: "text/markdown,text/plain,*/*" },
+      });
 
-    if (typeof node === "string") {
-      const m = node.match(slugRe);
-      if (m) return m[1];
+      if (response.ok) {
+        return response.text();
+      }
+
+      lastError = new Error("failed to fetch " + source + ": " + response.status);
+      if (response.status < 500 && response.status !== 429) {
+        break;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+
+    if (attempt < 3) {
+      await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+    }
+  }
+
+  throw lastError;
+}
+
+function parseIndentedInfo(lines, startIndex) {
+  const info = {};
+
+  for (let i = startIndex + 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (!line.trim()) {
       continue;
     }
 
-    if (Array.isArray(node)) {
-      for (let i = node.length - 1; i >= 0; i--) stack.push(node[i]);
-    } else if (typeof node === "object" && node !== null) {
-      const values = Object.values(node);
-      for (let i = values.length - 1; i >= 0; i--) stack.push(values[i]);
+    const match = line.match(/^ {2}([A-Za-z][A-Za-z0-9_-]*):\s*(.+?)\s*$/);
+    if (!match) {
+      break;
     }
+
+    info[match[1]] = match[2].replace(/^["']|["']$/g, "");
+  }
+
+  return info;
+}
+
+function parseFlatInfo(block) {
+  const info = {};
+
+  for (const line of block.split(/\r?\n/)) {
+    const match = line.match(/^\s*([A-Za-z][A-Za-z0-9_-]*):\s*(.+?)\s*$/);
+    if (match) {
+      info[match[1]] = match[2].replace(/^["']|["']$/g, "");
+    }
+  }
+
+  return info;
+}
+
+function extractLatestModelInfo(markdown) {
+  const lines = markdown.split(/\r?\n/);
+  const latestModelInfoIndex = lines.findIndex((line) =>
+    /^latestModelInfo:\s*$/.test(line)
+  );
+
+  if (latestModelInfoIndex >= 0) {
+    return parseIndentedInfo(lines, latestModelInfoIndex);
+  }
+
+  const commentMatch = markdown.match(
+    /<!--\s*latestModelInfo\s*\n([\s\S]*?)\n\s*-->/m
+  );
+  if (commentMatch) {
+    return parseFlatInfo(commentMatch[1]);
   }
 
   return undefined;
 }
 
-/**
- * Build the migration and prompting guide URLs from a resolved model slug.
- */
-function buildGuideUrls(model) {
-  const base = "https://developers.openai.com/api/docs/guides";
+function modelToSkillSlug(model) {
+  return model.trim().replace(/\./g, "p");
+}
+
+function absoluteUrl(baseUrl, value) {
+  return new URL(value, baseUrl).toString();
+}
+
+function normalizeInfo(info, baseUrl) {
+  const model = info?.model?.trim();
+  const migrationGuide = info?.migrationGuide?.trim();
+  const promptingGuide = info?.promptingGuide?.trim();
+
+  if (!model || !migrationGuide || !promptingGuide) {
+    throw new Error(
+      "latestModelInfo must include model, migrationGuide, and promptingGuide"
+    );
+  }
+
   return {
-    migrationGuideUrl: `${base}/model-guidance?model=${model}`,
-    promptingGuideUrl: `${base}/model-guidance?model=${model}#prompting-best-practices`,
+    model,
+    modelSlug: modelToSkillSlug(model),
+    migrationGuideUrl: absoluteUrl(baseUrl, migrationGuide),
+    promptingGuideUrl: absoluteUrl(baseUrl, promptingGuide),
   };
 }
 
 async function main() {
-  const url = DEFAULT_URL;
-  const token = process.env.LATEST_MODEL_TOKEN || undefined;
+  const { source, baseUrl } = parseArgs(process.argv);
+  const markdown = await readSource(source);
+  const info = extractLatestModelInfo(markdown);
 
-  let body;
-  try {
-    body = await fetchGuide(url, token);
-  } catch (err) {
-    console.error(`Fetch error: ${err.message}`);
-    process.exit(1);
+  if (!info) {
+    throw new Error(`latestModelInfo block not found in ${source}`);
   }
 
-  const model = extractModel(body);
-  if (!model) {
-    console.error("Could not extract model ID from latest-model guide");
-    process.exit(1);
-  }
-
-  const { migrationGuideUrl, promptingGuideUrl } = buildGuideUrls(model);
-
-  const result = {
-    model,
-    migrationGuideUrl,
-    promptingGuideUrl,
-    fetchedAt: new Date().toISOString(),
-  };
-
-  process.stdout.write(JSON.stringify(result));
+  process.stdout.write(
+    `${JSON.stringify(normalizeInfo(info, baseUrl), null, 2)}\n`
+  );
 }
 
-main();
+main().catch((error) => {
+  console.error(error.message);
+  process.exit(1);
+});

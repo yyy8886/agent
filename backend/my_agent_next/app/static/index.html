@@ -289,6 +289,18 @@ index.html — My Agent Next 管理中心
   }
   .tool-call-msg.confirming { background: rgba(244,71,113,.08); border-color: rgba(244,71,113,.2); color: var(--danger); }
 
+  /* Thinking indicator */
+  .thinking-msg {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: .8rem; color: var(--text-dim); padding: 2px 0;
+  }
+  .thinking-spinner {
+    width: 12px; height: 12px; border: 2px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin .8s linear infinite; flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
   @media (max-width: 500px) {
     body { padding: 14px; }
     .cards-grid { grid-template-columns: 1fr; }
@@ -1286,6 +1298,7 @@ async function workspaceSend() {
   const aiBubbleId = "ws-" + Date.now();
   const agentName = _wsAgents.find(a => a.id === ($("#wsAgentSelect").value))?.name || "AI";
   let bubbleCreated = false;
+  let thinkingShown = false;
 
   function ensureBubble() {
     if (bubbleCreated) return;
@@ -1295,6 +1308,25 @@ async function workspaceSend() {
       <div class="ws-msg-bubble"></div>
     </div>`;
   }
+
+  function showThinking() {
+    ensureBubble();
+    if (thinkingShown) return;
+    thinkingShown = true;
+    const bubble = document.querySelector(`#${aiBubbleId} .ws-msg-bubble`);
+    bubble.innerHTML += `<div class="thinking-msg" id="${aiBubbleId}-thinking"><span>正在思考</span><span class="thinking-spinner"></span></div>`;
+    $("#wsMessages").scrollTop = $("#wsMessages").scrollHeight;
+  }
+
+  function clearThinking() {
+    if (!thinkingShown) return;
+    thinkingShown = false;
+    const el = document.querySelector(`#${aiBubbleId}-thinking`);
+    if (el) el.remove();
+  }
+
+  // 发送后立即显示"正在思考"，直到第一个 token / 工具调用到来
+  showThinking();
 
   try {
     const res = await fetch(`/api/chat/threads/${wsActiveThreadId}/messages`, {
@@ -1327,6 +1359,7 @@ async function workspaceSend() {
           const data = JSON.parse(line.slice(6));
 
           if (data.event === "tool_call") {
+            clearThinking();
             ensureBubble();
             const d = data.data;
             const bubble = document.querySelector(`#${aiBubbleId} .ws-msg-bubble`);
@@ -1340,6 +1373,7 @@ async function workspaceSend() {
             const color = d.allowed === false ? "var(--danger)" : "var(--success)";
             bubble.innerHTML += `<div class="tool-call-msg" style="color:${color}">${d.allowed === false ? '✘' : '✔'} ${esc(d.name)}: ${esc(resultPreview)}</div>`;
             $("#wsMessages").scrollTop = $("#wsMessages").scrollHeight;
+            showThinking();
           }
           else if (data.event === "ask_user") {
             const d = data.data;
@@ -1351,15 +1385,17 @@ async function workspaceSend() {
             showToolConfirm(wsActiveThreadId, d.confirm_id, d.name, d.args, d.dangerous);
           }
           else if (data.token) {
+            clearThinking();
             ensureBubble();
             const bubble = document.querySelector(`#${aiBubbleId} .ws-msg-bubble`);
             bubble.innerHTML += esc(data.token);
             $("#wsMessages").scrollTop = $("#wsMessages").scrollHeight;
           }
           else if (data.done) {
-            // 流结束
+            clearThinking();
           }
           else if (data.error) {
+            clearThinking();
             ensureBubble();
             const bubble = document.querySelector(`#${aiBubbleId} .ws-msg-bubble`);
             bubble.innerHTML += `<br/>[错误: ${esc(data.error)}]`;
@@ -1368,6 +1404,7 @@ async function workspaceSend() {
       }
     }
   } catch(e) {
+    clearThinking();
     ensureBubble();
     document.querySelector(`#${aiBubbleId} .ws-msg-bubble`).textContent = `请求失败: ${esc(e.message)}`;
   }

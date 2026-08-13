@@ -10,4 +10,4 @@ chat:
   max_context_messages: 20      # 发给 LLM 的最大历史消息数，超出触发 compact
   keep_recent_on_compact: 8     # compact 时保留最近 N 条原文
   max_messages_per_thread: 500  # 每个线程 DB 硬上限，超出 FIFO 删除
-  max_agent_iterations: 20      # Agent 循环最大工具调用轮数
+  max_agent_iterations: 40      # Agent 循环最大工具调用轮数

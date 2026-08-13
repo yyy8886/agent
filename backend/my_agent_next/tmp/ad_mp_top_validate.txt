@@ -1,0 +1,82 @@
+warning: vertex 'XHkYPrrT0KpbmE83QaS9-2' negative position (-910,160)
+warning: vertex 'XHkYPrrT0KpbmE83QaS9-10' negative position (-60,124)
+warning: vertex 'XHkYPrrT0KpbmE83QaS9-12' negative position (-115,124)
+warning: vertex 'XHkYPrrT0KpbmE83QaS9-15' negative position (-70,110.42)
+warning: vertex 'XHkYPrrT0KpbmE83QaS9-16' negative position (-130,97.37)
+warning: vertex 'XHkYPrrT0KpbmE83QaS9-17' negative position (-210,112.01)
+warning: vertex 'XHkYPrrT0KpbmE83QaS9-18' negative position (-850,160)
+warning: vertex 'XHkYPrrT0KpbmE83QaS9-20' negative position (-850,190)
+warning: vertex 'XHkYPrrT0KpbmE83QaS9-22' negative position (-530,160)
+warning: vertex 'XHkYPrrT0KpbmE83QaS9-25' negative position (-910,90)
+warning: vertex 'XHkYPrrT0KpbmE83QaS9-27' negative position (-290,70)
+warning: vertex 'XHkYPrrT0KpbmE83QaS9-33' negative position (-430,134.92)
+warning: vertex 'XHkYPrrT0KpbmE83QaS9-35' negative position (-200,131.5)
+warning: vertex 'XHkYPrrT0KpbmE83QaS9-38' negative position (-440,206.71)
+warning: vertex 'XHkYPrrT0KpbmE83QaS9-40' negative position (-330,140)
+warning: vertex 'XHkYPrrT0KpbmE83QaS9-41' negative position (-400,140)
+warning: vertex 'XHkYPrrT0KpbmE83QaS9-42' negative position (-910,231.71)
+warning: vertex 'XHkYPrrT0KpbmE83QaS9-43' negative position (-910,270)
+warning: vertex 'XHkYPrrT0KpbmE83QaS9-44' negative position (-900,325)
+warning: vertex 'XHkYPrrT0KpbmE83QaS9-46' negative position (-850,270)
+warning: vertex 'XHkYPrrT0KpbmE83QaS9-48' negative position (-850,300)
+warning: vertex 'XHkYPrrT0KpbmE83QaS9-173' negative position (-690,30)
+warning: vertex '0WS70mmHU1CP3w9cPRHJ-0' negative position (-453,171.5)
+warning: vertex '0WS70mmHU1CP3w9cPRHJ-1' negative position (-453,200)
+warning: vertex '0WS70mmHU1CP3w9cPRHJ-2' negative position (-453,231.71)
+warning: vertex '0WS70mmHU1CP3w9cPRHJ-3' negative position (-453,261.71)
+warning: vertex '0WS70mmHU1CP3w9cPRHJ-4' negative position (-715,1065)
+warning: vertex '0WS70mmHU1CP3w9cPRHJ-5' negative position (-645,1100.21)
+warning: vertex '0WS70mmHU1CP3w9cPRHJ-7' negative position (-620,1030)
+warning: vertex 'PejymZREjRFxYmagyYbj-0' negative position (-525,1065)
+warning: vertex 'PejymZREjRFxYmagyYbj-7' negative position (-645,1058.59)
+warning: vertex 'PejymZREjRFxYmagyYbj-8' negative position (-645,1120.21)
+warning: vertex 'PejymZREjRFxYmagyYbj-9' negative position (-530,1030)
+warning: vertex 'PejymZREjRFxYmagyYbj-10' negative position (-530,1090)
+warning: vertex 'PejymZREjRFxYmagyYbj-11' negative position (-415,1070)
+warning: vertex 'PejymZREjRFxYmagyYbj-12' negative position (-290,1070)
+warning: vertex 'PejymZREjRFxYmagyYbj-13' negative position (-170,1060)
+warning: vertex 'PejymZREjRFxYmagyYbj-26' negative position (-360,220)
+warning: vertex 'PejymZREjRFxYmagyYbj-27' negative position (-365,100.67)
+warning: vertex 'PejymZREjRFxYmagyYbj-28' negative position (-480,990)
+warning: vertex 'PejymZREjRFxYmagyYbj-49' negative position (-190,1050)
+warning: vertex 'PejymZREjRFxYmagyYbj-52' negative position (-316,1055.83)
+warning: vertex 'UxHJLvNxgcs4ty5BFSiX-0' negative position (-715,1125.21)
+warning: vertex 'kOj4OE_tTQQ4qO2lK1tB-0' negative position (-260,440)
+warning: vertices 'XHkYPrrT0KpbmE83QaS9-2' and 'XHkYPrrT0KpbmE83QaS9-18' overlap
+warning: vertices 'XHkYPrrT0KpbmE83QaS9-2' and 'XHkYPrrT0KpbmE83QaS9-20' overlap
+warning: vertices 'XHkYPrrT0KpbmE83QaS9-2' and 'XHkYPrrT0KpbmE83QaS9-42' overlap
+warning: vertices 'XHkYPrrT0KpbmE83QaS9-33' and 'XHkYPrrT0KpbmE83QaS9-40' overlap
+warning: vertices 'XHkYPrrT0KpbmE83QaS9-33' and 'XHkYPrrT0KpbmE83QaS9-41' overlap
+warning: vertices 'XHkYPrrT0KpbmE83QaS9-38' and '0WS70mmHU1CP3w9cPRHJ-1' overlap
+warning: vertices 'XHkYPrrT0KpbmE83QaS9-38' and '0WS70mmHU1CP3w9cPRHJ-2' overlap
+warning: vertices 'XHkYPrrT0KpbmE83QaS9-38' and 'PejymZREjRFxYmagyYbj-26' overlap
+warning: vertices 'XHkYPrrT0KpbmE83QaS9-43' and 'XHkYPrrT0KpbmE83QaS9-44' overlap
+warning: vertices 'XHkYPrrT0KpbmE83QaS9-43' and 'XHkYPrrT0KpbmE83QaS9-46' overlap
+warning: vertices 'XHkYPrrT0KpbmE83QaS9-43' and 'XHkYPrrT0KpbmE83QaS9-48' overlap
+warning: vertices 'XHkYPrrT0KpbmE83QaS9-76' and 'XHkYPrrT0KpbmE83QaS9-158' overlap
+warning: vertices 'XHkYPrrT0KpbmE83QaS9-113' and 'XHkYPrrT0KpbmE83QaS9-116' overlap
+warning: vertices 'XHkYPrrT0KpbmE83QaS9-125' and 'XHkYPrrT0KpbmE83QaS9-129' overlap
+warning: vertices 'XHkYPrrT0KpbmE83QaS9-137' and 'XHkYPrrT0KpbmE83QaS9-141' overlap
+warning: vertices 'XHkYPrrT0KpbmE83QaS9-148' and 'XHkYPrrT0KpbmE83QaS9-152' overlap
+warning: vertices '0WS70mmHU1CP3w9cPRHJ-5' and 'PejymZREjRFxYmagyYbj-8' overlap
+warning: vertices '0WS70mmHU1CP3w9cPRHJ-5' and 'PejymZREjRFxYmagyYbj-10' overlap
+warning: vertices 'PejymZREjRFxYmagyYbj-0' and 'PejymZREjRFxYmagyYbj-11' overlap
+warning: edge 'UxHJLvNxgcs4ty5BFSiX-4' routes through vertex 'XHkYPrrT0KpbmE83QaS9-2'
+warning: edge 'PejymZREjRFxYmagyYbj-6' routes through vertex 'PejymZREjRFxYmagyYbj-9'
+warning: edge 'XHkYPrrT0KpbmE83QaS9-45' routes through vertex 'XHkYPrrT0KpbmE83QaS9-43'
+warning: edge 'XHkYPrrT0KpbmE83QaS9-45' routes through vertex '0WS70mmHU1CP3w9cPRHJ-2'
+warning: edge 'XHkYPrrT0KpbmE83QaS9-47' routes through vertex 'XHkYPrrT0KpbmE83QaS9-43'
+warning: edge 'XHkYPrrT0KpbmE83QaS9-47' routes through vertex '0WS70mmHU1CP3w9cPRHJ-2'
+warning: edge 'XHkYPrrT0KpbmE83QaS9-47' routes through vertex 'PejymZREjRFxYmagyYbj-26'
+warning: edge 'UxHJLvNxgcs4ty5BFSiX-3' routes through vertex 'PejymZREjRFxYmagyYbj-8'
+warning: edges 'PejymZREjRFxYmagyYbj-1' and 'UxHJLvNxgcs4ty5BFSiX-4' cross
+warning: edges 'PejymZREjRFxYmagyYbj-1' and 'XHkYPrrT0KpbmE83QaS9-45' cross
+warning: edges 'PejymZREjRFxYmagyYbj-1' and 'XHkYPrrT0KpbmE83QaS9-47' cross
+warning: edges 'UxHJLvNxgcs4ty5BFSiX-4' and 'XHkYPrrT0KpbmE83QaS9-45' cross
+warning: edges 'UxHJLvNxgcs4ty5BFSiX-4' and 'XHkYPrrT0KpbmE83QaS9-47' cross
+warning: edges 'PejymZREjRFxYmagyYbj-6' and 'XHkYPrrT0KpbmE83QaS9-45' cross
+warning: edges 'PejymZREjRFxYmagyYbj-6' and 'XHkYPrrT0KpbmE83QaS9-47' cross
+warning: page 'ตฺ 2 าณ': compressed, skipped (cannot lint)
+warning: page 'Page-1': compressed, skipped (cannot lint)
+warning: page 'npu_hsif_io_wrap': compressed, skipped (cannot lint)
+0 error(s), 81 warning(s)

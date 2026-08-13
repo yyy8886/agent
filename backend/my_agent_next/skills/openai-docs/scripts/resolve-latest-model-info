@@ -1,0 +1,5 @@
+#!/bin/sh
+# Wrapper that runs resolve-latest-model-info.cjs via Node.js.
+# On Windows this is not invoked directly; use resolve-latest-model-info.cjs instead.
+set -e
+exec node "$(dirname "$0")/resolve-latest-model-info.cjs" "$@"

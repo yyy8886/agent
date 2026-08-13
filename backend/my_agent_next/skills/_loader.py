@@ -1,85 +1,155 @@
-# skills/_loader.py — Skill 加载器
-# =============================================================================
-# 扫描 skills/ 目录下所有子目录，读取 SKILL.md 并解析 YAML frontmatter。
-#
-# 每个 Skill 目录结构：
-#   skills/<name>/
-#   ├── SKILL.md          # YAML frontmatter + markdown 指令
-#   ├── references/       # 详细参考文档（可选，按需读取）
-#   └── scripts/          # 辅助脚本（可选，LLM 通过 Bash 调用）
-#
-# 导出函数：
-#   load_all()              → list[SkillInfo]  所有已安装 Skill
-#   get(name)               → SkillInfo | None  按名查找
-#   available_skill_choices() → list[dict]      给前端/agent_profile_service 用
-# =============================================================================
+"""Load Skills through a rebuildable persistent metadata index.
 
+SKILL.md remains the source of truth. ``index.json`` stores only metadata and
+content fingerprints; Agent bindings remain the authorization boundary.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
 import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
 
 SKILLS_DIR = Path(__file__).resolve().parent
+INDEX_PATH = SKILLS_DIR / "index.json"
+INDEX_VERSION = 1
 
 
-@dataclass
+@dataclass(frozen=True)
 class SkillInfo:
-    """一个 Skill 的元信息和内容。"""
-    name: str           # frontmatter name 字段
-    description: str    # frontmatter description 字段
-    path: Path          # Skill 目录路径
-    content: str        # markdown 正文（不含 frontmatter）
+    name: str
+    description: str
+    path: Path
+    content: str
 
 
-def _parse_skill(skill_dir: Path) -> SkillInfo | None:
-    """解析单个目录下的 SKILL.md，返回 SkillInfo 或 None。"""
+def _skill_directories(skills_dir: Path) -> list[Path]:
+    return [
+        entry for entry in sorted(skills_dir.iterdir())
+        if entry.is_dir()
+        and not entry.name.startswith(("_", "."))
+        and (entry / "SKILL.md").is_file()
+    ]
+
+
+def _read_skill(skill_dir: Path) -> tuple[dict, str, str] | None:
     md_file = skill_dir / "SKILL.md"
     if not md_file.is_file():
         return None
-
-    text = md_file.read_text(encoding="utf-8")
-
-    # 解析 YAML frontmatter：两个 --- 之间
+    raw = md_file.read_bytes()
+    text = raw.decode("utf-8")
     match = re.match(r"^---\s*\n(.*?)\n---\s*\n(.*)", text, re.DOTALL)
     if not match:
         return None
-
     try:
-        frontmatter = yaml.safe_load(match.group(1))
+        frontmatter = yaml.safe_load(match.group(1)) or {}
     except yaml.YAMLError:
         return None
+    if not isinstance(frontmatter, dict):
+        return None
+    return frontmatter, match.group(2).strip(), hashlib.sha256(raw).hexdigest()
 
-    body = match.group(2).strip()
 
+def _build_index_data(skills_dir: Path) -> dict:
+    entries = []
+    for skill_dir in _skill_directories(skills_dir):
+        parsed = _read_skill(skill_dir)
+        if parsed is None:
+            continue
+        frontmatter, _, digest = parsed
+        entries.append({
+            "directory": skill_dir.name,
+            "name": str(frontmatter.get("name") or skill_dir.name),
+            "description": str(frontmatter.get("description") or ""),
+            "sha256": digest,
+        })
+    return {"version": INDEX_VERSION, "skills": entries}
+
+
+def _write_index(data: dict, index_path: Path) -> None:
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(
+        prefix=f".{index_path.name}.", suffix=".tmp", dir=index_path.parent
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump(data, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+        os.replace(temp_name, index_path)
+    except Exception:
+        try:
+            os.unlink(temp_name)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def ensure_index(
+    skills_dir: Path = SKILLS_DIR, index_path: Path | None = None
+) -> dict:
+    """Return a current index, rebuilding it atomically when sources change."""
+    skills_dir = Path(skills_dir)
+    index_path = Path(index_path) if index_path else skills_dir / "index.json"
+    current = _build_index_data(skills_dir)
+    try:
+        stored = json.loads(index_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        stored = None
+    if stored != current:
+        _write_index(current, index_path)
+    return current
+
+
+def rebuild_index(
+    skills_dir: Path = SKILLS_DIR, index_path: Path | None = None
+) -> dict:
+    """Force an atomic rebuild and return the new index data."""
+    skills_dir = Path(skills_dir)
+    index_path = Path(index_path) if index_path else skills_dir / "index.json"
+    data = _build_index_data(skills_dir)
+    _write_index(data, index_path)
+    return data
+
+
+def _parse_skill(skill_dir: Path) -> SkillInfo | None:
+    parsed = _read_skill(skill_dir)
+    if parsed is None:
+        return None
+    frontmatter, body, _ = parsed
     return SkillInfo(
-        name=frontmatter.get("name", skill_dir.name),
-        description=frontmatter.get("description", ""),
+        name=str(frontmatter.get("name") or skill_dir.name),
+        description=str(frontmatter.get("description") or ""),
         path=skill_dir,
         content=body,
     )
 
 
 def load_all() -> list[SkillInfo]:
-    """扫描 skills/ 目录，返回所有已安装的 Skill。"""
-    skills: list[SkillInfo] = []
-    for entry in sorted(SKILLS_DIR.iterdir()):
-        if not entry.is_dir():
-            continue
-        if entry.name.startswith("_") or entry.name.startswith("."):
-            continue
-        info = _parse_skill(entry)
-        if info:
-            skills.append(info)
-    return skills
+    index = ensure_index()
+    return [
+        info for entry in index["skills"]
+        if (info := _parse_skill(SKILLS_DIR / entry["directory"])) is not None
+    ]
 
 
 def get(name: str) -> SkillInfo | None:
-    """按名称查找一个 Skill。"""
-    skill_dir = SKILLS_DIR / name
-    return _parse_skill(skill_dir)
+    index = ensure_index()
+    entry = next(
+        (item for item in index["skills"] if name in (item["directory"], item["name"])),
+        None,
+    )
+    return _parse_skill(SKILLS_DIR / entry["directory"]) if entry else None
 
 
 def available_skill_choices() -> list[dict]:
-    """返回 {name, description} 列表，供前端和 agent_profile_service 使用。"""
-    return [{"name": s.name, "description": s.description} for s in load_all()]
+    """Read lightweight metadata directly from the persistent index."""
+    return [
+        {"name": item["name"], "description": item["description"]}
+        for item in ensure_index()["skills"]
+    ]

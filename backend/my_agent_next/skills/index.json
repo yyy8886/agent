@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "skills": [
+    {
+      "directory": "drawio-skill",
+      "name": "drawio-skill",
+      "description": "Use when the user requests diagrams, flowcharts, architecture diagrams, ER diagrams, UML / sequence / class diagrams, SysML / MBSE diagrams (block definition, internal block, requirement, parametric), BPMN business process diagrams, swimlane / cross-functional flowcharts, network topology, cloud architecture from Terraform or Kubernetes manifests, ML/DL model figures (Transformer/CNN/LSTM), mind maps, or any visualization. Also use proactively when explaining systems with 3+ components, complex data flows, or relationships that benefit from visual representation. Best suited when the diagram needs custom styling, rich shape vocabulary, swimlanes, or exportable images (PNG/SVG/PDF/JPG). Generates .drawio XML and exports locally via the native draw.io desktop CLI.",
+      "sha256": "95653730e181c7ddef73b97f562524038bcdd9f47cf77f88154d564a5100d122"
+    },
+    {
+      "directory": "environment-memory",
+      "name": "environment-memory",
+      "description": "Inspect and safely report the current runtime environment for Mabel, including host/actual execution platform, shell, Python executable, normalized workspace paths, available commands, filesystem capabilities, and selected non-secret environment configuration. Use when diagnosing Windows/WSL/Linux compatibility, preparing deployment, debugging tool failures, or when the user asks Mabel to read the operating environment or environment variables. Never expose secret values.",
+      "sha256": "dc5c6aea90804da59878d35711479c5efaa143e1e2db7d0c80a8a460cbb0d2eb"
+    },
+    {
+      "directory": "imagegen",
+      "name": "imagegen",
+      "description": "Generate or edit raster images when the task benefits from AI-created bitmap visuals such as photos, illustrations, textures, sprites, mockups, or transparent-background cutouts. Use when Codex should create a brand-new image, transform an existing image, or derive visual variants from references, and the output should be a bitmap asset rather than repo-native code or vector. Do not use when the task is better handled by editing existing SVG/vector/code-native assets, extending an established icon or logo system, or building the visual directly in HTML/CSS/canvas.",
+      "sha256": "613f892ba9259cbfcb44ee74e81587cc7ce288de86ae2f1eab5eacb190e34f58"
+    },
+    {
+      "directory": "openai-docs",
+      "name": "openai-docs",
+      "description": "Use for Codex models/pricing, scheduled tasks, skills, settings, setup, troubleshooting, customization, automations, and self-knowledge—including 'you,' 'your,' 'this app,' or 'this coding agent' when they refer to Codex—and for OpenAI APIs/products and ChatGPT Work. Also use for model choice/migration, prompting, SDKs, Responses, Realtime, agents, evals, and Chat/Work/Codex comparisons. Do not use for generic app/software tasks that merely mention Codex.",
+      "sha256": "4371fcc6652d78309ccf5e7710a4fd22314ad7f1f4928a6c172ddae80c87cc87"
+    },
+    {
+      "directory": "plugin-creator",
+      "name": "plugin-creator",
+      "description": "Create and scaffold plugin directories for Codex with a required `.codex-plugin/plugin.json`, optional plugin folders/files, valid manifest defaults, and personal-marketplace entries by default. Use when Codex needs to create a new personal plugin, add optional plugin structure, generate or update marketplace entries for plugin ordering and availability metadata, or update an existing local plugin during development with the CLI-driven cachebuster and reinstall flow.",
+      "sha256": "40354d99ca66f16a8bd92b0e6b315b4cd773ebcb8a6348a70398a4b787b86213"
+    },
+    {
+      "directory": "review-agent",
+      "name": "review-agent",
+      "description": "Perform a read-only, defect-first review of a specified code change and return every actionable finding. Use when another agent delegates review of uncommitted changes, a base-branch diff, a commit, or custom review instructions.",
+      "sha256": "36d17fc7d403e6532a0c133359349fd36c052a6c909a46efacdb3f3bce770764"
+    },
+    {
+      "directory": "skill-creator",
+      "name": "skill-creator",
+      "description": "Guide for creating effective skills. This skill should be used when users want to create a new skill (or update an existing skill) that extends Codex's capabilities with specialized knowledge, workflows, or tool integrations.",
+      "sha256": "f613ee9fdecd19a4b392d2fa730d1860a2118d073719cdc517cec062cdaf5990"
+    },
+    {
+      "directory": "skill-installer",
+      "name": "skill-installer",
+      "description": "Install Codex skills into $CODEX_HOME/skills from a curated list or a GitHub repo path. Use when a user asks to list installable skills, install a curated skill, or install a skill from another repo (including private repos).",
+      "sha256": "2cd3d02237d4238a2e27d0aa63a2a557374b0a9859fc5490c227f6c1fe88c8fe"
+    },
+    {
+      "directory": "user-memory",
+      "name": "user-memory",
+      "description": "自动提取和记住用户信息（名字、偏好、习惯等）",
+      "sha256": "4c23062012d2db071eb902cba467ff0cc1023d2e1ab3c33623ca0dff145d365b"
+    }
+  ]
+}

@@ -53,6 +53,29 @@ When using subagents for validation, treat that as an evaluation surface. The go
 
 Prefer raw artifacts such as example prompts, outputs, diffs, logs, or traces. Give the minimum task-local context needed to perform the validation. Avoid passing the intended answer, suspected bug, intended fix, or your prior conclusions unless the validation explicitly requires them.
 
+### Enforce the Write Boundary
+
+Resolve the requested destination before creating or editing anything. Treat that destination as
+the only writable scope for the task. All generated Skill files, temporary files, validation
+artifacts, and fixes must remain inside that destination unless the user explicitly authorizes a
+different path.
+
+Never modify this `skill-creator` Skill, its bundled scripts, another installed Skill, application
+code, or global configuration to make a target Skill pass. Bundled creator and validator scripts
+are dependencies, not editable task output. If one fails because of encoding, platform behavior,
+missing dependencies, or an apparent bug:
+
+1. Preserve the original failure output.
+2. Retry only with environment settings or arguments that do not write outside the target, such as
+   `PYTHONUTF8=1` or the platform-equivalent UTF-8 mode.
+3. If that is insufficient, create the required target files directly inside the destination and
+   validate them with a read-only check.
+4. Report the dependency limitation separately. Do not patch the dependency without explicit user
+   authorization.
+
+Before finishing, inspect changed paths and verify that every write belongs to the approved target.
+If any unintended write occurred, restore only that unintended write and report it.
+
 ### Anatomy of a Skill
 
 Every skill consists of a required SKILL.md file and optional bundled resources:
@@ -336,6 +359,10 @@ After substantial revisions, or if the skill is particularly tricky, you should 
 To begin implementation, start with the reusable resources identified above: `scripts/`, `references/`, and `assets/` files. Note that this step may require user input. For example, when implementing a `brand-guidelines` skill, the user may need to provide brand assets or templates to store in `assets/`, or documentation to store in `references/`.
 
 Added scripts must be tested by actually running them to ensure there are no bugs and that the output matches what is expected. If there are many similar scripts, only a representative sample needs to be tested to ensure confidence that they all work while balancing time to completion.
+
+Run platform-native commands. On Windows use PowerShell syntax; on Linux/macOS use the available
+POSIX shell. Do not use `||`, `&&`, `2>nul`, `dir`, or other shell-specific constructs until the
+runtime shell has been established.
 
 If you used `--examples`, delete any placeholder files that are not needed for the skill. Only create resource directories that are actually required.
 

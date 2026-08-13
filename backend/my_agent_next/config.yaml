@@ -3,7 +3,7 @@
 
 server:
   host: "127.0.0.1"
-  port: 19842
+  port: 19845
   auto_open_browser: true
 
 chat:

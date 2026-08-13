@@ -15,6 +15,7 @@
 import asyncio
 import json
 import os
+import re
 from pathlib import Path
 
 import yaml
@@ -34,6 +35,10 @@ MAX_CONTEXT = _chat_config.get("max_context_messages", 20)
 KEEP_RECENT = _chat_config.get("keep_recent_on_compact", 8)
 MAX_PER_THREAD = _chat_config.get("max_messages_per_thread", 500)
 MAX_AGENT_ITERATIONS = _chat_config.get("max_agent_iterations", 10)
+
+SKILL_TOOL_ALLOWLISTS = {
+    "review-agent": {"read_file", "grep", "glob"},
+}
 
 # 手动模式下等待用户确认的暂存区
 _pending: dict[str, asyncio.Event] = {}
@@ -109,11 +114,23 @@ class ChatService:
                 parts.append(persona)
             messages.append(SystemMessage(content=" ".join(parts)))
 
-        # 2. 注入 Agent 启用的 Skill 的 SKILL.md 内容
+        # 2. 绑定列表是授权边界；目录常驻，正文仅按当前问题加载。
         if agent:
             from my_agent_next.skills._loader import get as get_skill
+            from my_agent_next.skills._router import SkillRouter, build_skill_catalog
             skills_dir = Path(__file__).resolve().parent.parent / "skills"
-            for skill_name in agent.skills or []:
+            bound_skills = agent.skills or []
+            catalog = build_skill_catalog(bound_skills)
+            if catalog:
+                messages.append(SystemMessage(content=(
+                    "## 已授权 Skill 目录\n"
+                    "以下仅表示该 Agent 有权使用；未加载正文的 Skill 不得声称已经执行。\n"
+                    f"{catalog}"
+                )))
+
+            selected_routes = SkillRouter().select(user_content, bound_skills)
+            for route in selected_routes:
+                skill_name = route.name
                 info = get_skill(skill_name)
                 if info:
                     skill_dir = skills_dir / skill_name
@@ -154,7 +171,8 @@ class ChatService:
                             )
 
                     skill_prompt = (
-                        f"## 可用技能：{info.name}\n"
+                        f"## 本轮已加载 Skill：{info.name}\n"
+                        f"路由原因：{route.reason}\n"
                         f"Skill 文件目录：skills/{skill_name}/\n\n"
                         f"{info.description}\n\n{info.content}"
                         f"{resources_note}"
@@ -192,12 +210,19 @@ class ChatService:
                           user_content: str, profile,
                           permission_mode: str = "manual"):
         """Agent 循环：LLM ↔ 工具执行，SSE 流式返回。"""
-        messages = self.build_messages(agent_id, thread_id, user_content)
-        model = _build_model(profile)
-
         # 获取 agent
         agent_repo = AgentProfileRepository()
         agent = agent_repo.get(agent_id)
+        messages = self.build_messages(agent_id, thread_id, user_content)
+
+        selected_skill_names: list[str] = []
+        if agent:
+            from my_agent_next.skills._router import SkillRouter
+            selected_skill_names = [
+                route.name for route in SkillRouter().select(user_content, agent.skills or [])
+            ]
+        allowed_tool_names = _tool_names_for_skills(selected_skill_names)
+        model = _build_model(profile, allowed_tool_names=allowed_tool_names)
 
         # 存用户消息
         self.repo.save_message(thread_id, "user", user_content)
@@ -211,6 +236,7 @@ class ChatService:
         # ── Agent 循环 ──────────────────────────────────────────────────
         full_response = ""
         tool_calls_log: list[dict] = []
+        review_format_retry_used = False
 
         for iteration in range(MAX_AGENT_ITERATIONS):
             try:
@@ -325,6 +351,20 @@ class ChatService:
 
             # 没有工具调用 → 最终文本回复
             text = response.content if hasattr(response, "content") else str(response)
+            if "review-agent" in selected_skill_names and not _is_valid_review_response(text):
+                if not review_format_retry_used:
+                    review_format_retry_used = True
+                    messages.append(AIMessage(content=str(text)))
+                    messages.append(SystemMessage(content=(
+                        "Your review result violated the required output contract. Rewrite only the "
+                        "final answer now. Start with either '[P0]' through '[P3]' in the exact "
+                        "'[P#] title — path:line' form, or 'No findings.'. End with exactly one "
+                        "'Overall assessment:' line and one 'Test gaps or residual risks:' line. "
+                        "Do not use headings, tables, emojis, scratch analysis, or call tools."
+                    )))
+                    continue
+                yield f"data: {json.dumps({'error': 'review-agent returned an invalid final format after one correction attempt'})}\n\n"
+                return
             if text:
                 full_response += text
             # 流式输出最终文本
@@ -405,8 +445,40 @@ def _chunk_text(text: str, size: int = 4):
         yield text[i:i + size]
 
 
-def _build_model(profile):
+def _tool_names_for_skills(selected_skill_names: list[str]) -> set[str] | None:
+    """Return an enforced tool allowlist when an active Skill requires one."""
+    restricted = [
+        SKILL_TOOL_ALLOWLISTS[name]
+        for name in selected_skill_names
+        if name in SKILL_TOOL_ALLOWLISTS
+    ]
+    if not restricted:
+        return None
+    return set.intersection(*restricted)
+
+
+def _is_valid_review_response(text: str) -> bool:
+    """Validate the externally visible review-agent response contract."""
+    stripped = str(text).strip()
+    if not stripped:
+        return False
+    first_line = stripped.splitlines()[0].strip()
+    valid_start = first_line == "No findings." or bool(
+        re.fullmatch(r"\[P[0-3]\] .+ — .+:\d+", first_line)
+    )
+    return (
+        valid_start
+        and len(re.findall(r"(?m)^Overall assessment: .+$", stripped)) == 1
+        and len(re.findall(r"(?m)^Test gaps or residual risks: .+$", stripped)) == 1
+    )
+
+
+def _build_model(profile, allowed_tool_names: set[str] | None = None):
     """根据 ApiProfile 创建 LangChain ChatModel，并绑定工具。"""
+    tools = (
+        [tool for tool in ALL_TOOLS if tool.name in allowed_tool_names]
+        if allowed_tool_names is not None else ALL_TOOLS
+    )
     common = {"model": profile.model, "temperature": profile.temperature}
     if profile.provider == "deepseek":
         from langchain_deepseek import ChatDeepSeek
@@ -414,17 +486,17 @@ def _build_model(profile):
                              base_url=profile.base_url or "https://api.deepseek.com",
                              timeout=profile.timeout_seconds,
                              max_retries=profile.max_retries)
-        return model.bind_tools(ALL_TOOLS)
+        return model.bind_tools(tools)
     elif profile.provider == "openai":
         from langchain_openai import ChatOpenAI
         model = ChatOpenAI(**common, api_key=os.getenv(profile.api_key_env or ""),
                            base_url=profile.base_url or "https://api.openai.com/v1",
                            timeout=profile.timeout_seconds,
                            max_retries=profile.max_retries)
-        return model.bind_tools(ALL_TOOLS)
+        return model.bind_tools(tools)
     elif profile.provider == "ollama":
         from langchain_ollama import ChatOllama
         model = ChatOllama(**common,
                            base_url=profile.base_url or "http://127.0.0.1:11434")
-        return model.bind_tools(ALL_TOOLS)
+        return model.bind_tools(tools)
     raise ValueError(f"不支持的 provider：{profile.provider}")

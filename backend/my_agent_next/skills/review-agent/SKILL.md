@@ -9,6 +9,17 @@ Inspect the requested target directly and return every finding that the author w
 Do not modify files, create commits, push branches, post review comments, or delegate the review
 to another agent.
 
+## Establish the review target
+
+Before reporting findings, identify the exact change boundary: an uncommitted diff, merge-base
+diff, commit diff, or user-provided patch. A file path by itself is not a change boundary. If the
+user asks to review an existing file without identifying a change, perform a general code audit
+and label it as such; do not claim that pre-existing code is a regression introduced by a change.
+
+Remain strictly read-only. Use only inspection commands and read-only tools. Never call file write
+or edit tools, formatters that rewrite files, commit commands, or commands that generate tracked
+artifacts.
+
 ## Review the change
 
 1. Read the applicable `AGENTS.md` instructions.
@@ -33,10 +44,47 @@ Flag an issue only when all of these are true:
 - The affected scenario or call path can be demonstrated from the code.
 - The author would probably fix it if they knew about it.
 
+For every proposed finding, verify all three forms of evidence before including it:
+
+1. **Change evidence:** the cited line is inside the requested diff, unless this is explicitly a
+   general audit.
+2. **Behavior evidence:** identify the concrete input, platform, state, or call path that reaches
+   the defect.
+3. **Impact evidence:** explain an observable wrong result, not merely a possible improvement or
+   defense-in-depth preference.
+
+Do not elevate a design tradeoff, missing hardening, unused import, broad exception, incomplete
+test matrix, or theoretically bypassable heuristic to P0/P1 without demonstrating an exploitable
+or failing path in the reviewed scope. Do not describe intentional upper-layer enforcement as
+missing lower-layer enforcement unless a real caller bypasses that upper layer.
+
 Do not flag speculative concerns, pre-existing problems, intentional behavior changes, or style
 nits that do not obscure the code.
 
 ## Write the result
+
+The final answer MUST use exactly one of these two shapes. Do not emit analysis, scratch notes,
+"key findings", severity sections, tables, emojis, or an overall assessment before the findings.
+
+With findings:
+
+```text
+[P2] Imperative finding title — path/to/file.py:42
+
+One short paragraph with the demonstrated trigger and observable impact.
+
+Overall assessment: one short sentence.
+Test gaps or residual risks: one short sentence.
+```
+
+Without findings:
+
+```text
+No findings.
+
+Overall assessment: one short sentence.
+Test gaps or residual risks: one short sentence.
+```
 
 Present findings first, ordered by severity. Use one entry per issue in this form:
 
@@ -55,3 +103,13 @@ Use these priorities:
 If there are no qualifying findings, say `No findings.` Do not invent a finding to fill the result.
 After the findings, add a brief overall assessment and mention any material test gaps or residual
 risks.
+
+Do not add alternate headings such as "严重问题" or a count table. Findings must use the exact
+`[P#] title — path:line` form. Separate non-finding observations into the final test-gap or
+residual-risk paragraph, without assigning them priorities.
+
+For a general audit with no diff, require a reproducible failing check, existing failing test, or
+directly demonstrated call path before emitting a finding. Static claims that a blacklist might be
+bypassed, a child process might remain, PATH might contain duplicates, or an import is unused are
+not findings without demonstrated incorrect behavior and user impact. Put such concerns only in
+the residual-risk sentence or omit them.

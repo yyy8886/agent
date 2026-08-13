@@ -16,6 +16,26 @@ Use the helper scripts based on the task:
 
 Install skills with the helper scripts.
 
+## Source integrity
+
+Treat a result as an official OpenAI Skill listing only when it was obtained directly from the
+`openai/skills` GitHub repository through the bundled scripts, GitHub API, raw GitHub content, or a
+successful git checkout of that repository. Do not use search-engine snippets, DeepWiki, blogs,
+mirrors, cached catalogs, or other third-party pages to reconstruct or verify an official list.
+
+If every direct official source fails, stop and report the exact official-source failure. Do not
+continue general web search, guess names, combine remembered entries, or label third-party data as
+official. A partial official response must be labeled partial rather than completed from another
+source.
+
+Before stating that installation or listing succeeded, require machine-verifiable evidence:
+
+- Listing: valid output produced from a direct official source.
+- Installation: the destination exists, contains a valid `SKILL.md`, and matches the requested
+  repository path.
+
+Never install merely because the user asks what is available or asks how installation works.
+
 ## Communication
 
 When listing skills, output approximately as follows, depending on the context of the user's request. If they ask about experimental skills, list from `.experimental` instead of `.curated` and label the source accordingly:
@@ -52,6 +72,7 @@ All of these scripts use network, so when running in the sandbox, request escala
 ## Notes
 
 - Curated listing is fetched from `https://github.com/openai/skills/tree/main/skills/.curated` via the GitHub API. If it is unavailable, explain the error and exit.
+- After that failure, do not fall back to third-party search or documentation for an official list.
 - Private GitHub repos can be accessed via existing git credentials or optional `GITHUB_TOKEN`/`GH_TOKEN` for download.
 - Git fallback tries HTTPS first, then SSH.
 - The skills at https://github.com/openai/skills/tree/main/skills/.system are preinstalled, so no need to help users install those. If they ask, just explain this. If they insist, you can download and overwrite.

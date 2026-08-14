@@ -402,6 +402,7 @@ index.html — My Agent Next 管理中心
     <div id="mpInstalled" style="margin-bottom:20px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
         <h3 style="font-size:.9rem;font-weight:700;color:var(--text)">📦 已安装 (<span id="mpInstalledCount">0</span>)</h3>
+        <button id="mpInstalledToggle" class="skill-icon-btn" title="折叠或展开全部已安装 Skill" onclick="toggleInstalledSection()">⌄</button>
       </div>
       <div id="mpInstalledList" class="cards-grid"></div>
       <div id="mpInstalledEmpty" style="padding:12px;text-align:center;color:var(--text-dim);font-size:.8rem;border:1px dashed var(--border);border-radius:var(--radius-sm)">暂无已安装 Skill</div>
@@ -1176,6 +1177,17 @@ async function loadInstalledSkills() {
   } catch (e) {}
 }
 window.loadInstalledSkills = loadInstalledSkills;
+
+function toggleInstalledSection() {
+  const list = document.getElementById("mpInstalledList");
+  const empty = document.getElementById("mpInstalledEmpty");
+  const toggle = document.getElementById("mpInstalledToggle");
+  const collapsed = list.style.display !== "none";
+  list.style.display = collapsed ? "none" : "";
+  if (empty) empty.style.display = collapsed ? "none" : empty.style.display;
+  toggle.textContent = collapsed ? "›" : "⌄";
+}
+window.toggleInstalledSection = toggleInstalledSection;
 
 function toggleInstalledSkill(name) {
   const card = document.getElementById(`skill-card-${name}`);

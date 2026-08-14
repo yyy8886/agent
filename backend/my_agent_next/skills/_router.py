@@ -17,6 +17,7 @@ class SkillRoute:
 # Routing hints are deliberately separate from SKILL.md. They are application-level
 # dispatch policy, while Agent bindings remain the authorization boundary.
 ROUTING_HINTS: dict[str, tuple[str, ...]] = {
+    "address-lookup": ("地址查询", "地址定位", "ip定位", "ip 定位", "公网ip", "公网 ip", "我在哪", "当前位置", "本机位置", "经纬度", "address-lookup"),
     "drawio-skill": ("draw.io", "drawio", "流程图", "架构图", "时序图", "走线", "拓扑图"),
     "environment-memory": ("运行环境", "操作环境", "环境变量", "python版本", "python 版本", "windows", "linux", "wsl", "shell", "部署环境"),
     "imagegen": ("生成图片", "生成图像", "画一张", "图片生成", "编辑图片", "修改图片", "透明背景", "imagegen"),

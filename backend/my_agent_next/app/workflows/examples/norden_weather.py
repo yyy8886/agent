@@ -1,5 +1,8 @@
 """Example draft: Mabel extracts parameters, a Skill queries weather, Norden answers."""
 
+import json
+import re
+
 from typing import TypedDict
 
 from langgraph.graph import END, START, StateGraph
@@ -30,19 +33,28 @@ async def extract_parameters(
         "mabel",
         {
             "message": (
-                "请从下面的天气查询中提取地点。只返回可用于天气查询的城市或地区名称；"
-                "如果没有地点，返回 @auto_location。用户输入：" + state["message"]
+                "你现在只负责填写天气工具参数。仅返回一个 JSON 对象，不要解释、不要代码块："
+                '{"city":"城市或地区"}。如果用户没有提供地点，city 填 @auto_location。'
+                "必须保留用户给出的地点，不要使用 IP 定位替代明确地点。用户输入：" + state["message"]
             )
         },
     )
-    return {"city": str(result.get("answer", "@auto_location")).strip()}
+    answer = str(result.get("answer", ""))
+    match = re.search(r"\{.*?\}", answer, re.DOTALL)
+    if not match:
+        raise ValueError("梅贝尔没有返回天气参数 JSON。")
+    payload = json.loads(match.group(0))
+    city = str(payload.get("city", "")).strip()
+    if not city:
+        raise ValueError("梅贝尔返回的 city 为空。")
+    return {"city": city}
 
 
 async def query_weather(
     state: State,
     runtime: Runtime[WorkflowRuntime],
 ) -> dict:
-    result = await runtime.context.call_tool(
+    result = await runtime.context.call_skill(
         "weather-skill",
         {"city": state["city"]},
     )

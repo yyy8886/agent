@@ -1,7 +1,9 @@
 """Routing coverage for every capability currently bound to Mabel."""
 
 import unittest
+from types import SimpleNamespace
 
+from my_agent_next.app.chat_service import build_agent_context_messages
 from my_agent_next.skills._router import SkillRouter
 
 
@@ -59,6 +61,21 @@ class SkillRouterTests(unittest.TestCase):
             "先读取 Windows 环境，再查询 OpenAI 文档并创建 Skill", MABEL_SKILLS
         )
         self.assertEqual(len(selected), 2)
+
+    def test_routes_persisted_address_skill_and_loads_its_body(self):
+        agent = SimpleNamespace(
+            name="小丑",
+            persona="负责逗乐用户",
+            skills=["address-lookup"],
+        )
+        messages, selected = build_agent_context_messages(
+            agent,
+            "请使用 address-lookup 查询本机公网 IP 定位",
+        )
+        self.assertEqual(selected, ["address-lookup"])
+        combined = "\n".join(str(message.content) for message in messages)
+        self.assertIn("## 本轮已加载 Skill：address-lookup", combined)
+        self.assertIn("scripts/ip_lookup.py", combined)
 
 
 if __name__ == "__main__":

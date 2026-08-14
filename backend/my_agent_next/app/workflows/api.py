@@ -1,6 +1,9 @@
-"""HTTP API for workflow drafts. No submitted source is executed here."""
+"""HTTP API for workflow drafts and isolated workflow runs."""
+
+import json
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 
 from .service import (
     DEFAULT_WORKFLOW_SOURCE,
@@ -8,11 +11,13 @@ from .service import (
     WorkflowNotFoundError,
     WorkflowService,
 )
+from .run_manager import WorkflowRunManager
 
 
 def create_workflow_router(service: WorkflowService | None = None) -> APIRouter:
     router = APIRouter(prefix="/api/workflows", tags=["workflows"])
     workflow_service = service or WorkflowService()
+    run_manager = WorkflowRunManager(workflow_service.repository)
 
     def handle(exc: ValueError) -> HTTPException:
         if isinstance(exc, WorkflowNotFoundError):
@@ -42,6 +47,40 @@ def create_workflow_router(service: WorkflowService | None = None) -> APIRouter:
             return workflow_service.create(payload)
         except ValueError as exc:
             raise handle(exc)
+
+    @router.post("/{workflow_id}/runs")
+    def run_workflow(workflow_id: str, payload: dict):
+        try:
+            active = run_manager.start(
+                workflow_id,
+                payload.get("input", {}),
+                permission_mode=str(payload.get("permission_mode", "manual")),
+                recursion_limit=payload.get("recursion_limit", 50),
+                timeout_seconds=payload.get("timeout_seconds", 300),
+            )
+        except ValueError as exc:
+            raise handle(exc)
+
+        async def events():
+            async for event in run_manager.stream(active.run_id):
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(
+            events(),
+            media_type="text/event-stream",
+            headers={
+                "X-Workflow-Run-Id": active.run_id,
+                "X-Accel-Buffering": "no",
+                "Cache-Control": "no-cache",
+                "Access-Control-Expose-Headers": "X-Workflow-Run-Id",
+            },
+        )
+
+    @router.post("/runs/{run_id}/cancel")
+    def cancel_workflow_run(run_id: str):
+        if not run_manager.cancel(run_id):
+            raise HTTPException(404, "工作流运行不存在或已经结束。")
+        return {"cancelled": True, "run_id": run_id}
 
     @router.get("/{workflow_id}")
     def get_workflow(workflow_id: str):

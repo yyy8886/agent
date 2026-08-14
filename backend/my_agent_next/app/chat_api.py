@@ -13,6 +13,8 @@
 #   chat_api.py → chat_service.py → chat_repository.py
 #   接口层        → 业务编排         → SQLite"""
 
+import asyncio
+import json
 import uuid
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -25,6 +27,7 @@ from .chat_service import ChatService, set_tool_decision, set_question_response
 router = APIRouter(prefix="/api/chat")
 repo = ChatRepository()
 service = ChatService(repo)
+_active_chat_tasks: dict[str, asyncio.Task] = {}
 
 # ── 线程 ────────────────────────────────────────────────────────────────────
 
@@ -89,12 +92,39 @@ async def send_message(thread_id: str, payload: dict, request: Request):
         or "manual"
     )
 
+    async def cancellable_stream():
+        task = asyncio.current_task()
+        if task is not None:
+            previous = _active_chat_tasks.get(thread_id)
+            if previous is not None and previous is not task and not previous.done():
+                previous.cancel()
+            _active_chat_tasks[thread_id] = task
+        try:
+            async for chunk in service.stream_chat(
+                thread["agent_id"], thread_id, content, profile,
+                permission_mode=permission_mode,
+            ):
+                yield chunk
+        except asyncio.CancelledError:
+            yield f"data: {json.dumps({'event': 'cancelled', 'data': {'message': 'Agent 对话已停止。'}}, ensure_ascii=False)}\n\n"
+        finally:
+            if _active_chat_tasks.get(thread_id) is task:
+                _active_chat_tasks.pop(thread_id, None)
+
     return StreamingResponse(
-        service.stream_chat(thread["agent_id"], thread_id, content, profile,
-                           permission_mode=permission_mode),
+        cancellable_stream(),
         media_type="text/event-stream",
         headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
     )
+
+
+@router.post("/threads/{thread_id}/cancel")
+async def cancel_chat(thread_id: str):
+    task = _active_chat_tasks.get(thread_id)
+    if task is None or task.done():
+        raise HTTPException(404, "该对话当前没有正在生成的回答。")
+    task.cancel()
+    return {"cancelled": True}
 
 
 @router.post("/threads/{thread_id}/tool-response")

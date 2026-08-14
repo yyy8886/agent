@@ -2,6 +2,12 @@
   "version": 1,
   "skills": [
     {
+      "directory": "address-lookup",
+      "name": "address-lookup",
+      "description": "查询IP地址定位和地址地理编码。当用户需要查询某个IP地址的地理位置、获取本机公网IP位置，或将地址文本（如\"北京市朝阳区建国路88号\"）转换为经纬度坐标时使用此skill。",
+      "sha256": "6481a6daba42722a06584cc73541b24ffe50b27fd3def9a5b4694356349f440e"
+    },
+    {
       "directory": "drawio-skill",
       "name": "drawio-skill",
       "description": "Use when the user requests diagrams, flowcharts, architecture diagrams, ER diagrams, UML / sequence / class diagrams, SysML / MBSE diagrams (block definition, internal block, requirement, parametric), BPMN business process diagrams, swimlane / cross-functional flowcharts, network topology, cloud architecture from Terraform or Kubernetes manifests, ML/DL model figures (Transformer/CNN/LSTM), mind maps, or any visualization. Also use proactively when explaining systems with 3+ components, complex data flows, or relationships that benefit from visual representation. Best suited when the diagram needs custom styling, rich shape vocabulary, swimlanes, or exportable images (PNG/SVG/PDF/JPG). Generates .drawio XML and exports locally via the native draw.io desktop CLI.",
@@ -12,6 +18,12 @@
       "name": "environment-memory",
       "description": "Inspect and safely report this application's current runtime environment, including host and actual execution platform, shell, Python executable, normalized workspace paths, available commands, filesystem capabilities, and selected non-secret environment configuration. Use when diagnosing Windows/WSL/Linux compatibility, preparing deployment, debugging tool failures, or reading the operating environment or environment variables. Never expose secret values.",
       "sha256": "4f8f5c143336c1a0b8689eee18fa00d99eb21932278d0d8dbcf0a1ed84c4abcc"
+    },
+    {
+      "directory": "frontend-design-pro",
+      "name": "frontend-design-pro",
+      "description": "前端设计质量提升 skill。让 AI 生成的 UI/前端代码更专业，避免常见设计反模式。 参考 impeccable 项目的设计语言规范，提供 audit/polish/critique 等设计审查命令。 触发词：/audit /polish /critique /colorize /animate /bolder /quieter /distill 以及：审查UI设计、优化界面、前端设计建议、让设计更好看、检查设计质量\n",
+      "sha256": "48d7090d58bcdfc5a9e4f8710d6bd7611d9dcc8548eb6b4e82966984c4a0a4fe"
     },
     {
       "directory": "imagegen",

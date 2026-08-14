@@ -351,6 +351,11 @@ index.html — My Agent Next 管理中心
   .tool-log-item .tl-name { color: var(--warning); flex-shrink: 0; font-weight: 600; }
   .tool-log-item .tl-skill { color: var(--accent); flex-shrink: 0; }
   .tool-log-item .tl-detail { color: var(--text-dim); word-break: break-all; min-width: 0; }
+  .workflow-trace { margin-top:8px; border-top:1px solid var(--border); padding-top:8px; font-size:.75rem; font-family:Consolas, "Courier New", monospace; color:var(--text-dim); white-space:normal; }
+  .workflow-trace-item { padding:4px 0; border-bottom:1px solid rgba(255,255,255,.04); word-break:break-word; }
+  .workflow-trace-item .event-name { color:var(--accent); font-weight:700; margin-right:7px; }
+  .workflow-trace-item.error .event-name { color:var(--danger); }
+  .workflow-trace-item.output .event-name { color:var(--success); }
   .skill-compat { display:inline-flex;align-items:center;gap:5px;font-size:.72rem;font-weight:700; }
   .skill-compat::before { content:"";width:8px;height:8px;border-radius:50%;background:#778; }
   .skill-compat.green::before { background:var(--success); }
@@ -504,6 +509,7 @@ index.html — My Agent Next 管理中心
         <div class="ws-input-area" id="wsInputArea" style="display:none">
           <textarea id="wsInput" rows="1" placeholder="输入消息… (Enter 发送，Shift+Enter 换行)"
             onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();workspaceSend()}"></textarea>
+          <button class="btn btn-danger btn-sm" id="wsStopButton" onclick="workspaceStop()" style="display:none">停止</button>
           <button class="btn btn-primary btn-sm" onclick="workspaceSend()">发送</button>
         </div>
       </div>
@@ -648,7 +654,7 @@ def build_workflow():
     {"message": state["message"]},
 )</pre>
     <p>调用 Skill 或工具，用它的名称并填写参数：</p>
-    <pre>result = await runtime.context.call_tool(
+    <pre>result = await runtime.context.call_skill(
     "weather-skill",
     {"city": state["city"]},
 )</pre>
@@ -676,7 +682,7 @@ def build_workflow():
         <li><code>weather_skill</code> 独立调用天气 Skill，梅贝尔本身不需要绑定这个 Skill。</li>
         <li><code>norden_answers</code> 把用户问题和真实天气结果交给诺登，生成最终答案。</li>
       </ol>
-      <pre>result = await runtime.context.call_tool(
+      <pre>result = await runtime.context.call_skill(
     "weather-skill",
     {"city": state["city"]},
 )</pre>
@@ -1451,6 +1457,7 @@ window.uninstallSkill = uninstallSkill;
 let wsThreads = [];
 let wsActiveThreadId = null;
 let wsStreaming = false;
+let wsActiveWorkflowRunId = null;
 let _wsWorkflows = [];
 
 async function loadWorkspaceWorkflows(preferredId) {
@@ -1678,10 +1685,13 @@ async function workspaceOnConversationChange() {
     workspaceShowPlaceholder(false);
     $("#wsPlaceholder h3").textContent = workflow?.name || "工作流";
     $("#wsPlaceholder p").textContent = workflow?.validation?.valid
-      ? "草稿验证通过，执行 Worker 尚未实现"
+      ? "输入消息即可运行工作流"
       : "草稿存在验证问题，请先在工作流配置中修正";
+    $("#wsInputArea").style.display = "flex";
+    $("#wsInput").disabled = !workflow?.validation?.valid;
     return;
   }
+  $("#wsInput").disabled = false;
   $("#wsPlaceholder h3").textContent = "工作台";
   $("#wsPlaceholder p").textContent = "选择对话后开始交流";
   try {
@@ -1796,12 +1806,17 @@ function workspaceShowPlaceholder(clearSavedThread = true) {
 
 async function workspaceSend() {
   if (wsStreaming) return;
-  if (workspaceSelection().type === "workflow") { toast("工作流执行 Worker 尚未实现", "error"); return; }
   const content = $("#wsInput").value.trim();
   if (!content) return;
+  if (workspaceSelection().type === "workflow") {
+    await workspaceRunWorkflow(content);
+    return;
+  }
   if (!wsActiveThreadId) { toast("请先选择或新建一个对话", "error"); return; }
 
   wsStreaming = true;
+  $("#wsStopButton").style.display = "";
+  $("#wsConversationSelect").disabled = true;
   $("#wsInput").value = "";
   $("#wsInput").disabled = true;
 
@@ -1968,6 +1983,11 @@ async function workspaceSend() {
             // 显示确认弹窗
             showToolConfirm(wsActiveThreadId, d.confirm_id, d.name, d.args, d.dangerous);
           }
+          else if (data.event === "cancelled") {
+            clearThinking();
+            ensureBubble();
+            document.querySelector(`#${aiBubbleId} .ws-text`).textContent = data.data?.message || "Agent 对话已停止。";
+          }
           else if (data.token) {
             clearThinking();
             ensureBubble();
@@ -1994,6 +2014,8 @@ async function workspaceSend() {
   }
 
   wsStreaming = false;
+  $("#wsStopButton").style.display = "none";
+  $("#wsConversationSelect").disabled = false;
   $("#wsInput").disabled = false;
   $("#wsInput").focus();
 
@@ -2001,6 +2023,103 @@ async function workspaceSend() {
   workspaceOnConversationChange();
 }
 window.workspaceSend = workspaceSend;
+
+const WORKFLOW_EVENT_LABELS = {
+  workflow_started:"工作流开始", node_started:"节点开始", node_output:"节点输出",
+  node_finished:"节点完成", agent_started:"Agent 输入", agent_tool_call:"Agent 工具调用",
+  agent_tool_result:"Agent 工具输出", agent_skill_loaded:"Agent 加载 Skill", agent_output:"Agent 输出", tool_started:"工具输入",
+  tool_output:"工具输出", skill_started:"Skill 输入", skill_output:"Skill 输出",
+  child_workflow_started:"子工作流开始", child_workflow_output:"子工作流输出",
+  workflow_output:"工作流输出", run_output:"最终输出", run_cancelled:"已停止",
+  run_timeout:"运行超时", run_error:"运行错误", custom:"自定义事件",
+};
+
+async function workspaceRunWorkflow(content) {
+  const selection = workspaceSelection();
+  const workflow = _wsWorkflows.find(item => item.id === selection.id);
+  if (!workflow?.validation?.valid) { toast("工作流草稿未通过静态验证", "error"); return; }
+  wsStreaming = true;
+  wsActiveWorkflowRunId = null;
+  $("#wsInput").value = "";
+  $("#wsInput").disabled = true;
+  $("#wsStopButton").style.display = "";
+  $("#wsConversationSelect").disabled = true;
+  $("#wsPlaceholder").style.display = "none";
+  $("#wsMessages").style.display = "block";
+  $("#wsMessages").innerHTML += workspaceMsgHTML({role:"user", content});
+  const bubbleId = "workflow-" + Date.now();
+  $("#wsMessages").innerHTML += `<div class="ws-msg assistant" id="${bubbleId}">
+    <div class="ws-msg-label">${esc(workflow.name)}</div>
+    <div class="ws-msg-bubble"><div class="ws-text"></div><div class="workflow-trace"></div></div>
+  </div>`;
+  const trace = document.querySelector(`#${bubbleId} .workflow-trace`);
+  const answer = document.querySelector(`#${bubbleId} .ws-text`);
+
+  function appendEvent(event) {
+    const item = document.createElement("div");
+    const isError = ["run_error", "run_timeout", "run_cancelled"].includes(event.event);
+    const isOutput = ["node_output", "agent_output", "skill_output", "tool_output", "child_workflow_output", "workflow_output", "run_output"].includes(event.event);
+    item.className = `workflow-trace-item${isError ? " error" : ""}${isOutput ? " output" : ""}`;
+    const data = event.data || {};
+    let detail = "";
+    if (event.event.startsWith("node_")) detail = `${data.node || ""} ${JSON.stringify(data.output ?? data.input ?? data.error ?? "")}`;
+    else detail = JSON.stringify(data);
+    item.innerHTML = `<span class="event-name">${esc(WORKFLOW_EVENT_LABELS[event.event] || event.event)}</span>${esc(detail)}`;
+    trace.appendChild(item);
+    if (event.event === "run_output") answer.textContent = data.answer || "";
+    if (event.event === "run_error") answer.textContent = `运行失败：${data.message || "未知错误"}`;
+    if (event.event === "run_cancelled") answer.textContent = data.message || "运行已停止";
+    $("#wsMessages").scrollTop = $("#wsMessages").scrollHeight;
+  }
+
+  try {
+    const response = await fetch(`/api/workflows/${selection.id}/runs`, {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({input:{message:content}, permission_mode:wsPermissionMode, recursion_limit:50, timeout_seconds:300}),
+    });
+    if (!response.ok) throw new Error((await response.json()).detail || "工作流启动失败");
+    wsActiveWorkflowRunId = response.headers.get("X-Workflow-Run-Id");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, {stream:true});
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        try { appendEvent(JSON.parse(line.slice(6))); } catch(e) {}
+      }
+    }
+  } catch(error) {
+    appendEvent({event:"run_error", data:{message:error.message}});
+  } finally {
+    wsStreaming = false;
+    wsActiveWorkflowRunId = null;
+    $("#wsInput").disabled = false;
+    $("#wsStopButton").style.display = "none";
+    $("#wsConversationSelect").disabled = false;
+    $("#wsInput").focus();
+  }
+}
+
+async function workspaceStop() {
+  if (!wsStreaming) return;
+  const selection = workspaceSelection();
+  try {
+    if (selection.type === "workflow") {
+      if (!wsActiveWorkflowRunId) { toast("Worker 正在启动，请稍后再停止", "error"); return; }
+      await fetch(`/api/workflows/runs/${wsActiveWorkflowRunId}/cancel`, {method:"POST"});
+    } else if (wsActiveThreadId) {
+      await fetch(`/api/chat/threads/${wsActiveThreadId}/cancel`, {method:"POST"});
+    }
+    $("#wsStopButton").disabled = true;
+    setTimeout(() => { $("#wsStopButton").disabled = false; }, 1200);
+  } catch(error) { toast("停止失败：" + error.message, "error"); }
+}
+window.workspaceStop = workspaceStop;
 
 // 展开 / 收起工具调用折叠栏（供气泡内 onclick 调用）
 function toggleToolLog(bubbleId) {

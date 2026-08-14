@@ -50,6 +50,82 @@ _question_pending: dict[str, asyncio.Event] = {}
 _question_answers: dict[str, dict] = {}
 
 
+def build_agent_context_messages(agent, user_content: str) -> tuple[list, list[str]]:
+    """Build the shared persona, persisted Skill, and memory context for an Agent."""
+    messages = []
+    selected_skill_names: list[str] = []
+    if agent is None:
+        return messages, selected_skill_names
+
+    parts = []
+    if agent.name:
+        parts.append(f"你的名字是{agent.name}。")
+    if agent.persona:
+        parts.append(agent.persona)
+    if parts:
+        messages.append(SystemMessage(content=" ".join(parts)))
+
+    from my_agent_next.skills._loader import get as get_skill
+    from my_agent_next.skills._router import SkillRouter, build_skill_catalog
+
+    skills_dir = Path(__file__).resolve().parent.parent / "skills"
+    bound_skills = agent.skills or []
+    catalog = build_skill_catalog(bound_skills)
+    if catalog:
+        messages.append(SystemMessage(content=(
+            "## 已授权 Skill 目录\n"
+            "以下仅表示该 Agent 有权使用；未加载正文的 Skill 不得声称已经执行。\n"
+            f"{catalog}"
+        )))
+
+    selected_routes = SkillRouter().select(user_content, bound_skills)
+    selected_skill_names = [route.name for route in selected_routes]
+    for route in selected_routes:
+        info = get_skill(route.name)
+        if info is None:
+            continue
+        skill_dir = skills_dir / route.name
+        scripts_list = []
+        refs_list = []
+        if skill_dir.is_dir():
+            scripts_dir = skill_dir / "scripts"
+            if scripts_dir.is_dir():
+                scripts_list = sorted(
+                    path.name for path in scripts_dir.iterdir()
+                    if path.is_file() and not path.name.startswith(".")
+                )
+            refs_dir = skill_dir / "references"
+            if refs_dir.is_dir():
+                refs_list = sorted(
+                    path.name for path in refs_dir.iterdir()
+                    if path.is_file() and not path.name.startswith(".")
+                )
+        resources_note = ""
+        if scripts_list or refs_list:
+            resources_note = f"\n\n## Skill 资源清单（位于 skills/{route.name}/）\n"
+            if scripts_list:
+                resources_note += "\n### scripts/ — 用 run_bash 执行：\n" + "\n".join(
+                    f"- `python skills/{route.name}/scripts/{script}`" for script in scripts_list
+                )
+            if refs_list:
+                resources_note += "\n\n### references/ — 用 read_file 查阅：\n" + "\n".join(
+                    f"- `skills/{route.name}/references/{reference}`" for reference in refs_list
+                )
+        messages.append(SystemMessage(content=(
+            f"## 本轮已加载 Skill：{info.name}\n"
+            f"路由原因：{route.reason}\n"
+            f"Skill 文件目录：skills/{route.name}/\n\n"
+            f"{info.description}\n\n{info.content}{resources_note}"
+        )))
+
+    if "user-memory" in bound_skills:
+        from .user_memory_service import UserMemoryService
+        memory_prompt = UserMemoryService().get_memory_prompt()
+        if memory_prompt:
+            messages.append(SystemMessage(content=memory_prompt))
+    return messages, selected_skill_names
+
+
 def set_tool_decision(thread_id: str, tool_call_id: str, allowed: bool) -> None:
     """由 chat_api 调用，存入用户对工具调用的决定。"""
     key = f"{thread_id}:{tool_call_id}"
@@ -101,91 +177,7 @@ class ChatService:
         agent_repo = AgentProfileRepository()
         agent = agent_repo.get(agent_id)
 
-        persona = agent.persona if agent else ""
-        name = agent.name if agent else ""
-
-        messages = []
-
-        # 1. Agent 人设（名字 + persona）
-        if name or persona:
-            parts = []
-            if name:
-                parts.append(f"你的名字是{name}。")
-            if persona:
-                parts.append(persona)
-            messages.append(SystemMessage(content=" ".join(parts)))
-
-        # 2. 绑定列表是授权边界；目录常驻，正文仅按当前问题加载。
-        if agent:
-            from my_agent_next.skills._loader import get as get_skill
-            from my_agent_next.skills._router import SkillRouter, build_skill_catalog
-            skills_dir = Path(__file__).resolve().parent.parent / "skills"
-            bound_skills = agent.skills or []
-            catalog = build_skill_catalog(bound_skills)
-            if catalog:
-                messages.append(SystemMessage(content=(
-                    "## 已授权 Skill 目录\n"
-                    "以下仅表示该 Agent 有权使用；未加载正文的 Skill 不得声称已经执行。\n"
-                    f"{catalog}"
-                )))
-
-            selected_routes = SkillRouter().select(user_content, bound_skills)
-            for route in selected_routes:
-                skill_name = route.name
-                info = get_skill(skill_name)
-                if info:
-                    skill_dir = skills_dir / skill_name
-                    # 扫描 skill 目录下的可用资源
-                    scripts_list = []
-                    refs_list = []
-                    if skill_dir.is_dir():
-                        scripts_dir = skill_dir / "scripts"
-                        if scripts_dir.is_dir():
-                            scripts_list = sorted([
-                                p.name for p in scripts_dir.iterdir()
-                                if p.is_file() and not p.name.startswith('.')
-                            ])
-                        refs_dir = skill_dir / "references"
-                        if refs_dir.is_dir():
-                            refs_list = sorted([
-                                p.name for p in refs_dir.iterdir()
-                                if p.is_file() and not p.name.startswith('.')
-                            ])
-
-                    # 构建资源清单
-                    resources_note = ""
-                    if scripts_list or refs_list:
-                        resources_note = (
-                            f"\n\n## Skill 资源清单（位于 skills/{skill_name}/）\n"
-                        )
-                        if scripts_list:
-                            resources_note += (
-                                f"\n### scripts/ — 用 run_bash 执行：\n"
-                                + "\n".join(f"- `python skills/{skill_name}/scripts/{s}`"
-                                           for s in scripts_list)
-                            )
-                        if refs_list:
-                            resources_note += (
-                                f"\n\n### references/ — 用 read_file 查阅：\n"
-                                + "\n".join(f"- `skills/{skill_name}/references/{r}`"
-                                           for r in refs_list)
-                            )
-
-                    skill_prompt = (
-                        f"## 本轮已加载 Skill：{info.name}\n"
-                        f"路由原因：{route.reason}\n"
-                        f"Skill 文件目录：skills/{skill_name}/\n\n"
-                        f"{info.description}\n\n{info.content}"
-                        f"{resources_note}"
-                    )
-                    messages.append(SystemMessage(content=skill_prompt))
-
-        # 3. 用户记忆注入（user-memory Skill 的代码后台）
-        if agent and "user-memory" in (agent.skills or []):
-            from .user_memory_service import UserMemoryService
-            mem_prompt = UserMemoryService().get_memory_prompt()
-            if mem_prompt:
-                messages.append(SystemMessage(content=mem_prompt))
+        messages, _ = build_agent_context_messages(agent, user_content)
 
         # 4. Compact 摘要
         summary = (self.repo.get_thread(thread_id) or {}).get("summary", "")

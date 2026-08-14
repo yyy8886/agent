@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only, secret-safe runtime environment inspection for Mabel."""
+"""Read-only, secret-safe runtime environment inspection for this application."""
 from __future__ import annotations
 
 import json

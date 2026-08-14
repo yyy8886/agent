@@ -1,6 +1,6 @@
 ---
 name: environment-memory
-description: Inspect and safely report the current runtime environment for Mabel, including host/actual execution platform, shell, Python executable, normalized workspace paths, available commands, filesystem capabilities, and selected non-secret environment configuration. Use when diagnosing Windows/WSL/Linux compatibility, preparing deployment, debugging tool failures, or when the user asks Mabel to read the operating environment or environment variables. Never expose secret values.
+description: Inspect and safely report this application's current runtime environment, including host and actual execution platform, shell, Python executable, normalized workspace paths, available commands, filesystem capabilities, and selected non-secret environment configuration. Use when diagnosing Windows/WSL/Linux compatibility, preparing deployment, debugging tool failures, or reading the operating environment or environment variables. Never expose secret values.
 ---
 
 # Environment Memory

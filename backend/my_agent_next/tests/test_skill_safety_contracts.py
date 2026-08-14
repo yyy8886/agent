@@ -86,6 +86,16 @@ class SkillSafetyContractTests(unittest.TestCase):
         self.assertNotIn("$CODEX_HOME", text)
         self.assertNotIn("~/.codex", text)
 
+    def test_environment_memory_is_not_bound_to_a_specific_agent_name(self):
+        text = self.read("environment-memory")
+        self.assertIn("this application's current runtime environment", text)
+        self.assertNotIn("for Mabel", text)
+
+    def test_system_time_metadata_is_not_bound_to_a_specific_agent_name(self):
+        text = self.read("system-time")
+        self.assertIn('"author":"this application"', text)
+        self.assertNotIn("Mabel", text)
+
     def test_review_tool_allowlist_is_enforced(self):
         allowed = _tool_names_for_skills(["review-agent"])
         self.assertEqual(allowed, {"read_file", "grep", "glob"})

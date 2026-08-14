@@ -1,10 +1,8 @@
 ---
 name: system-time
-version: 1.0.0
-description: Use when the user asks for the current system time, date, timezone, or wants to query the local clock. Returns the current date and time in the local timezone, optionally with timezone info and a 24-hour format. Best suited for quick time/date lookups on the host machine.
+description: Use when the user asks for the current system time, date, timezone, or wants to query the local clock. Returns the current date and time in the local timezone, optionally with timezone information and a 24-hour format. Best suited for quick time and date lookups on the host machine.
 license: MIT
-platforms: [windows, macos, linux]
-metadata: {"author":"Mabel","version":"1.0.0"}
+metadata: {"author":"this application","version":"1.0.0","platforms":["windows","macos","linux"]}
 ---
 
 # System Time

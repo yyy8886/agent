@@ -10,8 +10,8 @@
     {
       "directory": "environment-memory",
       "name": "environment-memory",
-      "description": "Inspect and safely report the current runtime environment for Mabel, including host/actual execution platform, shell, Python executable, normalized workspace paths, available commands, filesystem capabilities, and selected non-secret environment configuration. Use when diagnosing Windows/WSL/Linux compatibility, preparing deployment, debugging tool failures, or when the user asks Mabel to read the operating environment or environment variables. Never expose secret values.",
-      "sha256": "dc5c6aea90804da59878d35711479c5efaa143e1e2db7d0c80a8a460cbb0d2eb"
+      "description": "Inspect and safely report this application's current runtime environment, including host and actual execution platform, shell, Python executable, normalized workspace paths, available commands, filesystem capabilities, and selected non-secret environment configuration. Use when diagnosing Windows/WSL/Linux compatibility, preparing deployment, debugging tool failures, or reading the operating environment or environment variables. Never expose secret values.",
+      "sha256": "4f8f5c143336c1a0b8689eee18fa00d99eb21932278d0d8dbcf0a1ed84c4abcc"
     },
     {
       "directory": "imagegen",
@@ -52,8 +52,8 @@
     {
       "directory": "system-time",
       "name": "system-time",
-      "description": "Use when the user asks for the current system time, date, timezone, or wants to query the local clock. Returns the current date and time in the local timezone, optionally with timezone info and a 24-hour format. Best suited for quick time/date lookups on the host machine.",
-      "sha256": "0b8b6320658203a2f47b978722ae774909fdd9aa7f9f5ff94387c11c046620af"
+      "description": "Use when the user asks for the current system time, date, timezone, or wants to query the local clock. Returns the current date and time in the local timezone, optionally with timezone information and a 24-hour format. Best suited for quick time and date lookups on the host machine.",
+      "sha256": "869e463ede144edecd2f4f7f4d07257291191ccbbc69b4c480232d4327b1300d"
     },
     {
       "directory": "user-memory",

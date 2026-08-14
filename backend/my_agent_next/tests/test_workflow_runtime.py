@@ -102,6 +102,16 @@ class WorkflowRuntimeTests(unittest.IsolatedAsyncioTestCase):
         node_outputs = [event for event in events if event["event"] == "node_output"]
         self.assertEqual(len(node_outputs), 3)
 
+    def test_rejects_workflow_timeout_outside_public_range(self):
+        for value in (0, 1801, 30.5, True):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "timeout_seconds"):
+                    self.manager.start(
+                        "missing-flow",
+                        {"message": "hello"},
+                        timeout_seconds=value,
+                    )
+
     async def test_hard_stops_non_cooperative_python_while_loop(self):
         self.repository.save(
             WorkflowDraft("infinite-flow", "Infinite", "", INFINITE_LOOP_SOURCE),

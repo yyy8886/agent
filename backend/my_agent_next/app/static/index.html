@@ -522,6 +522,14 @@ index.html — My Agent Next 管理中心
             <button class="perm-btn" id="permAuto" onclick="setPermissionMode('auto')">自动</button>
           </div>
         </div>
+        <div class="ws-sidebar-section" id="wsWorkflowRuntimeSettings" style="display:none">
+          <label for="wsWorkflowTimeout" style="font-size:.7rem;font-weight:700;color:var(--text-dim);text-transform:uppercase">运行上限</label>
+          <div style="display:flex;align-items:center;gap:7px;margin-top:6px">
+            <input id="wsWorkflowTimeout" type="number" min="1" max="1800" step="30" value="300"
+              onchange="saveWorkflowTimeout(this.value)" style="width:92px;padding:6px 8px">
+            <span style="font-size:.72rem;color:var(--text-dim)">秒</span>
+          </div>
+        </div>
         <div class="ws-thread-list" id="wsThreadList">
           <div class="ws-empty-threads">请先选择 Agent 或工作流</div>
         </div>
@@ -1936,6 +1944,42 @@ function workspaceSelection() {
   return separator < 0 ? {type:"", id:""} : {type:value.slice(0, separator), id:value.slice(separator + 1)};
 }
 
+const WORKFLOW_TIMEOUT_DEFAULT = 300;
+const WORKFLOW_TIMEOUT_MIN = 1;
+const WORKFLOW_TIMEOUT_MAX = 1800;
+
+function normalizedWorkflowTimeout(value) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return WORKFLOW_TIMEOUT_DEFAULT;
+  return Math.max(WORKFLOW_TIMEOUT_MIN, Math.min(WORKFLOW_TIMEOUT_MAX, parsed));
+}
+
+function workflowTimeoutStorageKey(workflowId) {
+  return `workflowTimeoutSeconds:${workflowId}`;
+}
+
+function currentWorkflowTimeout() {
+  const workflowId = workspaceSelection().id;
+  if (!workflowId) return WORKFLOW_TIMEOUT_DEFAULT;
+  return normalizedWorkflowTimeout(localStorage.getItem(workflowTimeoutStorageKey(workflowId)));
+}
+
+function syncWorkflowRuntimeSettings() {
+  const selection = workspaceSelection();
+  const section = $("#wsWorkflowRuntimeSettings");
+  section.style.display = selection.type === "workflow" ? "" : "none";
+  if (selection.type === "workflow") $("#wsWorkflowTimeout").value = currentWorkflowTimeout();
+}
+
+function saveWorkflowTimeout(value) {
+  const selection = workspaceSelection();
+  if (selection.type !== "workflow" || !selection.id) return;
+  const normalized = normalizedWorkflowTimeout(value);
+  $("#wsWorkflowTimeout").value = normalized;
+  localStorage.setItem(workflowTimeoutStorageKey(selection.id), String(normalized));
+}
+window.saveWorkflowTimeout = saveWorkflowTimeout;
+
 function renderWorkspaceConversationChoices() {
   const select = $("#wsConversationSelect");
   const legacyAgentId = localStorage.getItem("wsActiveAgentId");
@@ -1956,6 +2000,7 @@ function renderWorkspaceConversationChoices() {
 
 async function workspaceOnConversationChange() {
   const selection = workspaceSelection();
+  syncWorkflowRuntimeSettings();
   wsThreads = [];
   wsActiveThreadId = null;
   if (!selection.id) {
@@ -2356,6 +2401,7 @@ const WORKFLOW_EVENT_LABELS = {
 async function workspaceRunWorkflow(content) {
   const selection = workspaceSelection();
   const workflow = _wsWorkflows.find(item => item.id === selection.id);
+  const timeoutSeconds = currentWorkflowTimeout();
   if (!workflow?.validation?.valid) { toast("工作流草稿未通过静态验证", "error"); return; }
   if (!wsActiveWorkflowConversationId) await workspaceStartWorkflowConversation(content.slice(0, 24));
   if (!wsActiveWorkflowConversationId) return;
@@ -2365,6 +2411,7 @@ async function workspaceRunWorkflow(content) {
   $("#wsInput").disabled = true;
   $("#wsStopButton").style.display = "";
   $("#wsConversationSelect").disabled = true;
+  $("#wsWorkflowTimeout").disabled = true;
   $("#wsPlaceholder").style.display = "none";
   $("#wsMessages").style.display = "block";
   $("#wsMessages").innerHTML += workspaceMsgHTML({role:"user", content});
@@ -2404,7 +2451,7 @@ async function workspaceRunWorkflow(content) {
   try {
     const response = await fetch(`/api/workflows/${selection.id}/runs`, {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({thread_id:wsActiveWorkflowConversationId, input:{message:content}, permission_mode:wsPermissionMode, recursion_limit:50, timeout_seconds:300}),
+      body:JSON.stringify({thread_id:wsActiveWorkflowConversationId, input:{message:content}, permission_mode:wsPermissionMode, recursion_limit:50, timeout_seconds:timeoutSeconds}),
     });
     if (!response.ok) throw new Error((await response.json()).detail || "工作流启动失败");
     wsActiveWorkflowRunId = response.headers.get("X-Workflow-Run-Id");
@@ -2430,6 +2477,7 @@ async function workspaceRunWorkflow(content) {
     $("#wsInput").disabled = false;
     $("#wsStopButton").style.display = "none";
     $("#wsConversationSelect").disabled = false;
+    $("#wsWorkflowTimeout").disabled = false;
     $("#wsInput").focus();
     try {
       const response = await fetch(`/api/workflows/${selection.id}/threads`);

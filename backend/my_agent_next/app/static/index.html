@@ -351,7 +351,9 @@ index.html — My Agent Next 管理中心
   .tool-log-item .tl-name { color: var(--warning); flex-shrink: 0; font-weight: 600; }
   .tool-log-item .tl-skill { color: var(--accent); flex-shrink: 0; }
   .tool-log-item .tl-detail { color: var(--text-dim); word-break: break-all; min-width: 0; }
-  .workflow-trace { margin-top:8px; border-top:1px solid var(--border); padding-top:8px; font-size:.75rem; font-family:Consolas, "Courier New", monospace; color:var(--text-dim); white-space:normal; }
+  .workflow-trace { margin-top:10px; border-top:1px solid var(--border); padding-top:7px; font-size:.75rem; color:var(--text-dim); white-space:normal; }
+  .workflow-trace summary { cursor:pointer; user-select:none; color:var(--text-dim); font-family:inherit; font-weight:600; }
+  .workflow-trace-body { margin-top:6px; max-height:280px; overflow:auto; font-family:Consolas, "Courier New", monospace; }
   .workflow-trace-item { padding:4px 0; border-bottom:1px solid rgba(255,255,255,.04); word-break:break-word; }
   .workflow-trace-item .event-name { color:var(--accent); font-weight:700; margin-right:7px; }
   .workflow-trace-item.error .event-name { color:var(--danger); }
@@ -1458,6 +1460,7 @@ let wsThreads = [];
 let wsActiveThreadId = null;
 let wsStreaming = false;
 let wsActiveWorkflowRunId = null;
+let wsActiveWorkflowConversationId = null;
 let _wsWorkflows = [];
 
 async function loadWorkspaceWorkflows(preferredId) {
@@ -1681,14 +1684,25 @@ async function workspaceOnConversationChange() {
   localStorage.setItem("wsActiveConversation", `${selection.type}:${selection.id}`);
   if (selection.type === "workflow") {
     const workflow = _wsWorkflows.find(item => item.id === selection.id);
-    $("#wsThreadList").innerHTML = '<div class="ws-empty-threads">工作流执行记录将在执行器完成后显示</div>';
-    workspaceShowPlaceholder(false);
-    $("#wsPlaceholder h3").textContent = workflow?.name || "工作流";
-    $("#wsPlaceholder p").textContent = workflow?.validation?.valid
-      ? "输入消息即可运行工作流"
-      : "草稿存在验证问题，请先在工作流配置中修正";
-    $("#wsInputArea").style.display = "flex";
-    $("#wsInput").disabled = !workflow?.validation?.valid;
+    try {
+      const response = await fetch(`/api/workflows/${selection.id}/threads`);
+      if (!response.ok) throw new Error("工作流对话加载失败");
+      wsThreads = await response.json();
+      workspaceRenderThreadList();
+      const savedThread = localStorage.getItem("wsActiveThreadId");
+      if (savedThread && wsThreads.some(thread => thread.id === savedThread)) {
+        wsActiveWorkflowConversationId = savedThread;
+        workspaceOpenThread(savedThread);
+      } else {
+        wsActiveWorkflowConversationId = null;
+        workspaceShowPlaceholder(false);
+        $("#wsPlaceholder h3").textContent = workflow?.name || "工作流";
+        $("#wsPlaceholder p").textContent = workflow?.validation?.valid
+          ? "新建对话后即可运行工作流"
+          : "草稿存在验证问题，请先在工作流配置中修正";
+        $("#wsInputArea").style.display = "none";
+      }
+    } catch(error) { toast(error.message, "error"); }
     return;
   }
   $("#wsInput").disabled = false;
@@ -1730,7 +1744,10 @@ function workspaceRenderThreadList() {
 async function workspaceNewThread() {
   const selection = workspaceSelection();
   if (!selection.id) { toast("请先选择 Agent 或工作流", "error"); return; }
-  if (selection.type === "workflow") { toast("工作流执行 Worker 尚未实现，暂时不能新建工作流对话", "error"); return; }
+  if (selection.type === "workflow") {
+    await workspaceStartWorkflowConversation();
+    return;
+  }
   try {
     const res = await fetch("/api/chat/threads", {
       method: "POST", headers: {"Content-Type":"application/json"},
@@ -1744,8 +1761,25 @@ async function workspaceNewThread() {
 }
 window.workspaceNewThread = workspaceNewThread;
 
+async function workspaceStartWorkflowConversation(title = "") {
+  if (wsStreaming) { toast("请先停止当前运行", "error"); return; }
+  const workflow = _wsWorkflows.find(item => item.id === workspaceSelection().id);
+  if (!workflow) { toast("请先选择工作流", "error"); return; }
+  try {
+    const response = await fetch(`/api/workflows/${workflow.id}/threads`, {
+      method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({title}),
+    });
+    if (!response.ok) throw new Error((await response.json()).detail || "创建失败");
+    const thread = await response.json();
+    wsThreads.unshift(thread);
+    wsActiveWorkflowConversationId = thread.id;
+    workspaceOpenThread(thread.id);
+  } catch(error) { toast("创建工作流对话失败：" + error.message, "error"); }
+}
+
 async function workspaceOpenThread(id) {
   wsActiveThreadId = id;
+  if (workspaceSelection().type === "workflow") wsActiveWorkflowConversationId = id;
   localStorage.setItem("wsActiveThreadId", id);
   workspaceRenderThreadList();
   workspaceLoadMessages(id);
@@ -1759,6 +1793,7 @@ async function workspaceDeleteThread(id) {
     wsThreads = wsThreads.filter(t => t.id !== id);
     if (wsActiveThreadId === id) {
       wsActiveThreadId = null;
+      if (workspaceSelection().type === "workflow") wsActiveWorkflowConversationId = null;
       localStorage.removeItem("wsActiveThreadId");
       workspaceShowPlaceholder();
     }
@@ -1788,7 +1823,8 @@ async function workspaceLoadMessages(threadId) {
 
 function workspaceMsgHTML(m) {
   const selection = workspaceSelection();
-  const label = m.role === "user" ? "用户" : (_wsAgents.find(a => a.id === selection.id)?.name || "AI");
+  const workflow = _wsWorkflows.find(item => item.id === selection.id);
+  const label = m.role === "user" ? "用户" : (selection.type === "workflow" ? workflow?.name : _wsAgents.find(a => a.id === selection.id)?.name) || "AI";
   return `<div class="ws-msg ${m.role}">
     <div class="ws-msg-label">${label}</div>
     <div class="ws-msg-bubble">${esc(m.content)}</div>
@@ -2038,6 +2074,8 @@ async function workspaceRunWorkflow(content) {
   const selection = workspaceSelection();
   const workflow = _wsWorkflows.find(item => item.id === selection.id);
   if (!workflow?.validation?.valid) { toast("工作流草稿未通过静态验证", "error"); return; }
+  if (!wsActiveWorkflowConversationId) await workspaceStartWorkflowConversation(content.slice(0, 24));
+  if (!wsActiveWorkflowConversationId) return;
   wsStreaming = true;
   wsActiveWorkflowRunId = null;
   $("#wsInput").value = "";
@@ -2050,10 +2088,15 @@ async function workspaceRunWorkflow(content) {
   const bubbleId = "workflow-" + Date.now();
   $("#wsMessages").innerHTML += `<div class="ws-msg assistant" id="${bubbleId}">
     <div class="ws-msg-label">${esc(workflow.name)}</div>
-    <div class="ws-msg-bubble"><div class="ws-text"></div><div class="workflow-trace"></div></div>
+    <div class="ws-msg-bubble"><div class="ws-text"></div><details class="workflow-trace" open>
+      <summary>运行过程（<span class="trace-count">0</span> 条）</summary><div class="workflow-trace-body"></div>
+    </details></div>
   </div>`;
   const trace = document.querySelector(`#${bubbleId} .workflow-trace`);
+  const traceBody = trace.querySelector(".workflow-trace-body");
+  const traceCount = trace.querySelector(".trace-count");
   const answer = document.querySelector(`#${bubbleId} .ws-text`);
+  let eventCount = 0;
 
   function appendEvent(event) {
     const item = document.createElement("div");
@@ -2065,17 +2108,20 @@ async function workspaceRunWorkflow(content) {
     if (event.event.startsWith("node_")) detail = `${data.node || ""} ${JSON.stringify(data.output ?? data.input ?? data.error ?? "")}`;
     else detail = JSON.stringify(data);
     item.innerHTML = `<span class="event-name">${esc(WORKFLOW_EVENT_LABELS[event.event] || event.event)}</span>${esc(detail)}`;
-    trace.appendChild(item);
+    traceBody.appendChild(item);
+    eventCount++;
+    traceCount.textContent = eventCount;
     if (event.event === "run_output") answer.textContent = data.answer || "";
     if (event.event === "run_error") answer.textContent = `运行失败：${data.message || "未知错误"}`;
     if (event.event === "run_cancelled") answer.textContent = data.message || "运行已停止";
+    if (["run_output", "run_error", "run_cancelled"].includes(event.event)) trace.removeAttribute("open");
     $("#wsMessages").scrollTop = $("#wsMessages").scrollHeight;
   }
 
   try {
     const response = await fetch(`/api/workflows/${selection.id}/runs`, {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({input:{message:content}, permission_mode:wsPermissionMode, recursion_limit:50, timeout_seconds:300}),
+      body:JSON.stringify({thread_id:wsActiveWorkflowConversationId, input:{message:content}, permission_mode:wsPermissionMode, recursion_limit:50, timeout_seconds:300}),
     });
     if (!response.ok) throw new Error((await response.json()).detail || "工作流启动失败");
     wsActiveWorkflowRunId = response.headers.get("X-Workflow-Run-Id");
@@ -2102,6 +2148,13 @@ async function workspaceRunWorkflow(content) {
     $("#wsStopButton").style.display = "none";
     $("#wsConversationSelect").disabled = false;
     $("#wsInput").focus();
+    try {
+      const response = await fetch(`/api/workflows/${selection.id}/threads`);
+      if (response.ok) {
+        wsThreads = await response.json();
+        workspaceRenderThreadList();
+      }
+    } catch(error) {}
   }
 }
 

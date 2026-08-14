@@ -1,9 +1,12 @@
 """HTTP API for workflow drafts and isolated workflow runs."""
 
 import json
+import uuid
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
+
+from ..chat_repository import ChatRepository
 
 from .service import (
     DEFAULT_WORKFLOW_SOURCE,
@@ -48,8 +51,36 @@ def create_workflow_router(service: WorkflowService | None = None) -> APIRouter:
         except ValueError as exc:
             raise handle(exc)
 
+    @router.get("/{workflow_id}/threads")
+    def list_workflow_threads(workflow_id: str):
+        try:
+            workflow_service.get(workflow_id)
+        except ValueError as exc:
+            raise handle(exc)
+        return ChatRepository().list_threads(f"workflow:{workflow_id}")
+
+    @router.post("/{workflow_id}/threads")
+    def create_workflow_thread(workflow_id: str, payload: dict):
+        try:
+            workflow_service.get(workflow_id)
+        except ValueError as exc:
+            raise handle(exc)
+        title = str(payload.get("title", "")).strip()
+        return ChatRepository().create_thread(
+            str(uuid.uuid4())[:8],
+            f"workflow:{workflow_id}",
+            title,
+        )
+
     @router.post("/{workflow_id}/runs")
     def run_workflow(workflow_id: str, payload: dict):
+        chat_repository = ChatRepository()
+        thread_id = str(payload.get("thread_id", "")).strip()
+        if not thread_id:
+            raise HTTPException(400, "请先新建或选择工作流对话。")
+        thread = chat_repository.get_thread(thread_id)
+        if thread is None or thread.get("agent_id") != f"workflow:{workflow_id}":
+            raise HTTPException(404, "工作流对话不存在。")
         try:
             active = run_manager.start(
                 workflow_id,
@@ -61,8 +92,19 @@ def create_workflow_router(service: WorkflowService | None = None) -> APIRouter:
         except ValueError as exc:
             raise handle(exc)
 
+        message = str(payload.get("input", {}).get("message", ""))
+        chat_repository.save_message(thread_id, "user", message)
+        chat_repository.touch_thread(thread_id)
+        if not thread.get("title"):
+            chat_repository.update_thread_title(thread_id, message[:40])
+
         async def events():
             async for event in run_manager.stream(active.run_id):
+                if event.get("event") == "run_output":
+                    answer = str((event.get("data") or {}).get("answer", ""))
+                    if answer:
+                        chat_repository.save_message(thread_id, "assistant", answer)
+                        chat_repository.touch_thread(thread_id)
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
         return StreamingResponse(

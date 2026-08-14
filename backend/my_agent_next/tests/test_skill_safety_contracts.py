@@ -1,6 +1,8 @@
 """Regression tests for safety rules learned from real Skill runs."""
 
 import unittest
+import importlib.util
+import sys
 from pathlib import Path
 
 from my_agent_next.app.chat_service import _is_valid_review_response, _tool_names_for_skills
@@ -44,6 +46,30 @@ class SkillSafetyContractTests(unittest.TestCase):
         self.assertIn("If every direct official source fails, stop", text)
         self.assertIn("Do not use search-engine snippets", text)
         self.assertIn("do not fall back to third-party search", text)
+
+    def test_installer_defaults_to_the_application_skill_directory(self):
+        scripts = SKILLS / "skill-installer" / "scripts"
+        sys.path.insert(0, str(scripts))
+        try:
+            installer_spec = importlib.util.spec_from_file_location(
+                "project_skill_installer", scripts / "install-skill-from-github.py"
+            )
+            installer = importlib.util.module_from_spec(installer_spec)
+            sys.modules[installer_spec.name] = installer
+            installer_spec.loader.exec_module(installer)
+            listing_spec = importlib.util.spec_from_file_location(
+                "project_skill_listing", scripts / "list-skills.py"
+            )
+            listing = importlib.util.module_from_spec(listing_spec)
+            sys.modules[listing_spec.name] = listing
+            listing_spec.loader.exec_module(listing)
+        finally:
+            sys.path.pop(0)
+            sys.modules.pop("project_skill_installer", None)
+            sys.modules.pop("project_skill_listing", None)
+        expected = str(SKILLS.resolve())
+        self.assertEqual(installer._default_dest(), expected)
+        self.assertEqual(listing._project_skills_dir(), expected)
 
     def test_review_tool_allowlist_is_enforced(self):
         allowed = _tool_names_for_skills(["review-agent"])

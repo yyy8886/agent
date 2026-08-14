@@ -46,8 +46,8 @@
     {
       "directory": "skill-installer",
       "name": "skill-installer",
-      "description": "Install Codex skills into $CODEX_HOME/skills from a curated list or a GitHub repo path. Use when a user asks to list installable skills, install a curated skill, or install a skill from another repo (including private repos).",
-      "sha256": "2cd3d02237d4238a2e27d0aa63a2a557374b0a9859fc5490c227f6c1fe88c8fe"
+      "description": "Install Skills into this application's `skills/` directory from a curated list or a GitHub repository path. Use when users ask to list or install Skills from the official OpenAI catalog or another repository.",
+      "sha256": "0eecbe5b7f12d0be8b54f4befa06a5e695f67648d738b41c5b1144f619ad013c"
     },
     {
       "directory": "system-time",

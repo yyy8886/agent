@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install a skill from a GitHub repo path into $CODEX_HOME/skills."""
+"""Install a Skill from a GitHub repo path into this application's skills directory."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 import urllib.error
 import urllib.parse
 import zipfile
@@ -42,8 +43,8 @@ class InstallError(Exception):
     pass
 
 
-def _codex_home() -> str:
-    return os.environ.get("CODEX_HOME", os.path.expanduser("~/.codex"))
+def _project_skills_dir() -> str:
+    return str(Path(__file__).resolve().parents[2])
 
 
 def _tmp_root() -> str:
@@ -241,7 +242,7 @@ def _resolve_source(args: Args) -> Source:
 
 
 def _default_dest() -> str:
-    return os.path.join(_codex_home(), "skills")
+    return _project_skills_dir()
 
 
 def _parse_args(argv: list[str]) -> Args:

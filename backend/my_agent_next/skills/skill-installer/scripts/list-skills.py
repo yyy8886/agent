@@ -8,6 +8,7 @@ import json
 import os
 import sys
 import urllib.error
+from pathlib import Path
 
 from github_utils import github_api_contents_url, github_request
 
@@ -31,12 +32,12 @@ def _request(url: str) -> bytes:
     return github_request(url, "codex-skill-list")
 
 
-def _codex_home() -> str:
-    return os.environ.get("CODEX_HOME", os.path.expanduser("~/.codex"))
+def _project_skills_dir() -> str:
+    return str(Path(__file__).resolve().parents[2])
 
 
 def _installed_skills() -> set[str]:
-    root = os.path.join(_codex_home(), "skills")
+    root = _project_skills_dir()
     if not os.path.isdir(root):
         return set()
     entries = set()

@@ -262,7 +262,14 @@ index.html — My Agent Next 管理中心
 
   .ws-wf-section { padding: 12px 14px; border-top: 1px solid var(--border); }
   .ws-wf-section .wf-title { font-size: 0.7rem; font-weight: 700; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
-  .ws-wf-placeholder { padding: 16px; text-align: center; color: var(--text-dim); font-size: 0.78rem; border: 1px dashed var(--border); border-radius: var(--radius-sm); }
+  .ws-wf-controls { display:flex; gap:6px; }
+  .ws-wf-controls select { min-width:0; flex:1; }
+  .workflow-modal { width:min(1040px, calc(100vw - 32px)); max-width:none; max-height:calc(100vh - 32px); overflow:auto; }
+  .workflow-editor { min-height:360px !important; font-family:Consolas, "Courier New", monospace; line-height:1.5; tab-size:4; white-space:pre; }
+  .workflow-dependency-row { display:grid; grid-template-columns:minmax(120px, 1fr) minmax(180px, 1.4fr) 34px; gap:8px; margin-bottom:8px; }
+  .workflow-validation { margin-top:10px; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-dim); font-size:.78rem; max-height:130px; overflow:auto; }
+  .workflow-validation.valid { border-color:var(--success); color:var(--success); }
+  .workflow-validation.invalid { border-color:var(--danger); color:var(--danger); }
 
   /* Responsive workspace */
   @media (max-width: 700px) {
@@ -457,8 +464,12 @@ index.html — My Agent Next 管理中心
           <div class="ws-empty-threads">请先选择 Agent</div>
         </div>
         <div class="ws-wf-section">
-          <div class="wf-title">⚙ 工作流配置</div>
-          <div class="ws-wf-placeholder">待实现</div>
+          <div class="wf-title">工作流配置</div>
+          <div class="ws-wf-controls">
+            <select id="wsWorkflowSelect" onchange="workspaceWorkflowChanged()"><option value="">未选择工作流</option></select>
+            <button class="btn btn-ghost btn-sm" onclick="openWorkflowModal()" title="新建工作流">＋</button>
+            <button class="btn btn-ghost btn-sm" id="wsWorkflowEdit" onclick="editSelectedWorkflow()" title="编辑工作流" disabled>编辑</button>
+          </div>
         </div>
       </div>
       <!-- 对话区 -->
@@ -537,6 +548,35 @@ index.html — My Agent Next 管理中心
       <div class="form-actions">
         <button type="button" class="btn btn-ghost" onclick="closeAgentModal()">取消</button>
         <button type="submit" class="btn btn-primary">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="modalWorkflow">
+  <div class="modal workflow-modal">
+    <h2 id="workflowModalTitle">新建工作流草稿</h2>
+    <form id="workflowForm" onsubmit="saveWorkflowDraft(event)">
+      <input type="hidden" id="workflowFormIsEdit">
+      <div class="form-row">
+        <div class="form-group"><label>工作流 ID</label><input id="workflowFormId" required pattern="[a-z][a-z0-9_-]{1,63}" placeholder="例如 support-flow"></div>
+        <div class="form-group"><label>名称</label><input id="workflowFormName" required maxlength="100" placeholder="例如 客服处理"></div>
+      </div>
+      <div class="form-group"><label>说明</label><input id="workflowFormDescription" maxlength="1000" placeholder="这个工作流解决什么问题"></div>
+      <div class="form-group">
+        <label>子工作流依赖</label>
+        <div id="workflowDependencies"></div>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="addWorkflowDependency()">＋ 添加依赖</button>
+      </div>
+      <div class="form-group"><label>LangGraph 源码</label><textarea id="workflowFormSource" class="workflow-editor" spellcheck="false"></textarea></div>
+      <div id="workflowValidation" class="workflow-validation">尚未验证</div>
+      <div class="form-actions" style="justify-content:space-between">
+        <button type="button" class="btn btn-danger" id="workflowDeleteButton" onclick="deleteWorkflowDraft()" style="display:none">删除草稿</button>
+        <div style="display:flex;gap:8px;margin-left:auto">
+          <button type="button" class="btn btn-ghost" onclick="closeWorkflowModal()">取消</button>
+          <button type="button" class="btn btn-ghost" onclick="validateWorkflowDraft()">静态验证</button>
+          <button type="submit" class="btn btn-primary">保存草稿</button>
+        </div>
       </div>
     </form>
   </div>
@@ -1255,10 +1295,164 @@ window.uninstallSkill = uninstallSkill;
 let wsThreads = [];
 let wsActiveThreadId = null;
 let wsStreaming = false;
+let _wsWorkflows = [];
+
+async function loadWorkspaceWorkflows(preferredId) {
+  try {
+    const response = await fetch("/api/workflows");
+    if (!response.ok) throw new Error("工作流列表加载失败");
+    _wsWorkflows = await response.json();
+    const select = $("#wsWorkflowSelect");
+    const previous = preferredId ?? select.value ?? localStorage.getItem("wsActiveWorkflowId") ?? "";
+    select.innerHTML = '<option value="">未选择工作流</option>' + _wsWorkflows.map(
+      item => `<option value="${esc(item.id)}">${esc(item.name)} (${esc(item.id)})</option>`
+    ).join("");
+    if (previous && _wsWorkflows.some(item => item.id === previous)) select.value = previous;
+    workspaceWorkflowChanged();
+  } catch (error) {
+    toast(error.message, "error");
+  }
+}
+
+function workspaceWorkflowChanged() {
+  const id = $("#wsWorkflowSelect").value;
+  $("#wsWorkflowEdit").disabled = !id;
+  if (id) localStorage.setItem("wsActiveWorkflowId", id);
+  else localStorage.removeItem("wsActiveWorkflowId");
+}
+window.workspaceWorkflowChanged = workspaceWorkflowChanged;
+
+async function openWorkflowModal(workflowId = "") {
+  $("#workflowForm").reset();
+  $("#workflowDependencies").innerHTML = "";
+  renderWorkflowValidation(null);
+  const editing = Boolean(workflowId);
+  $("#workflowFormIsEdit").value = editing ? "1" : "";
+  $("#workflowFormId").disabled = editing;
+  $("#workflowDeleteButton").style.display = editing ? "" : "none";
+  $("#workflowModalTitle").textContent = editing ? "编辑工作流草稿" : "新建工作流草稿";
+  try {
+    if (editing) {
+      const response = await fetch(`/api/workflows/${workflowId}`);
+      if (!response.ok) throw new Error((await response.json()).detail || "工作流加载失败");
+      const item = await response.json();
+      $("#workflowFormId").value = item.id;
+      $("#workflowFormName").value = item.name;
+      $("#workflowFormDescription").value = item.description;
+      $("#workflowFormSource").value = item.draft_source;
+      item.dependencies.forEach(dependency => addWorkflowDependency(dependency));
+      renderWorkflowValidation(item.validation);
+    } else {
+      const response = await fetch("/api/workflows/template");
+      if (!response.ok) throw new Error("模板加载失败");
+      $("#workflowFormSource").value = (await response.json()).draft_source;
+    }
+    $("#modalWorkflow").classList.remove("hidden");
+  } catch (error) { toast(error.message, "error"); }
+}
+window.openWorkflowModal = openWorkflowModal;
+
+function editSelectedWorkflow() {
+  const id = $("#wsWorkflowSelect").value;
+  if (id) openWorkflowModal(id);
+}
+window.editSelectedWorkflow = editSelectedWorkflow;
+
+function closeWorkflowModal() { $("#modalWorkflow").classList.add("hidden"); }
+window.closeWorkflowModal = closeWorkflowModal;
+
+function addWorkflowDependency(dependency = {}) {
+  const row = document.createElement("div");
+  row.className = "workflow-dependency-row";
+  const choices = _wsWorkflows
+    .filter(item => item.id !== $("#workflowFormId").value)
+    .map(item => `<option value="${esc(item.id)}" ${item.id === dependency.target_workflow_id ? "selected" : ""}>${esc(item.name)} (${esc(item.id)})</option>`)
+    .join("");
+  row.innerHTML = `<input class="workflow-dependency-key" placeholder="依赖键" value="${esc(dependency.key || "")}" pattern="[a-z][a-z0-9_-]{1,63}" required>
+    <select class="workflow-dependency-target" required><option value="">选择目标工作流</option>${choices}</select>
+    <button type="button" class="btn btn-ghost btn-sm" title="移除依赖">×</button>`;
+  row.querySelector("button").onclick = () => row.remove();
+  $("#workflowDependencies").appendChild(row);
+}
+window.addWorkflowDependency = addWorkflowDependency;
+
+function workflowPayload() {
+  return {
+    id: $("#workflowFormId").value.trim(),
+    name: $("#workflowFormName").value.trim(),
+    description: $("#workflowFormDescription").value.trim(),
+    draft_source: $("#workflowFormSource").value,
+    dependencies: [...document.querySelectorAll(".workflow-dependency-row")].map(row => ({
+      key: row.querySelector(".workflow-dependency-key").value.trim(),
+      target_workflow_id: row.querySelector(".workflow-dependency-target").value,
+    })),
+  };
+}
+
+function renderWorkflowValidation(validation) {
+  const element = $("#workflowValidation");
+  element.className = "workflow-validation";
+  if (!validation) { element.textContent = "尚未验证"; return; }
+  element.classList.add(validation.valid ? "valid" : "invalid");
+  if (validation.valid) {
+    element.textContent = `验证通过${validation.imports.length ? " · 导入：" + validation.imports.join(", ") : ""}`;
+    return;
+  }
+  element.innerHTML = validation.issues.map(issue =>
+    `${issue.line ? `第 ${issue.line} 行：` : ""}${esc(issue.message)} <span style="opacity:.7">[${esc(issue.code)}]</span>`
+  ).join("<br>");
+}
+
+async function validateWorkflowDraft() {
+  try {
+    const response = await fetch("/api/workflows/validate", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({draft_source:$("#workflowFormSource").value}),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail || "验证失败");
+    renderWorkflowValidation(result);
+  } catch (error) { toast(error.message, "error"); }
+}
+window.validateWorkflowDraft = validateWorkflowDraft;
+
+async function saveWorkflowDraft(event) {
+  event.preventDefault();
+  const payload = workflowPayload();
+  const editing = Boolean($("#workflowFormIsEdit").value);
+  try {
+    const response = await fetch(editing ? `/api/workflows/${payload.id}` : "/api/workflows", {
+      method: editing ? "PUT" : "POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail || "保存失败");
+    renderWorkflowValidation(result.validation);
+    await loadWorkspaceWorkflows(result.id);
+    closeWorkflowModal();
+    toast(result.validation.valid ? "工作流草稿已保存，静态验证通过" : "草稿已保存，但仍有验证问题", result.validation.valid ? "success" : "error");
+  } catch (error) { toast(error.message, "error"); }
+}
+window.saveWorkflowDraft = saveWorkflowDraft;
+
+async function deleteWorkflowDraft() {
+  const id = $("#workflowFormId").value;
+  if (!id || !confirm(`确定删除工作流草稿“${id}”吗？`)) return;
+  try {
+    const response = await fetch(`/api/workflows/${id}`, {method:"DELETE"});
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail || "删除失败");
+    closeWorkflowModal();
+    await loadWorkspaceWorkflows("");
+    toast("工作流草稿已删除", "success");
+  } catch (error) { toast(error.message, "error"); }
+}
+window.deleteWorkflowDraft = deleteWorkflowDraft;
+$("#modalWorkflow").addEventListener("click", event => { if (event.target === $("#modalWorkflow")) closeWorkflowModal(); });
 
 let _wsAgents = [];
 async function workspaceInit() {
   // 加载 Agent 列表到下拉框
+  loadWorkspaceWorkflows();
   try {
     const res = await fetch("/api/agents");
     if (!res.ok) return;

@@ -24,6 +24,8 @@ class Workflow:
     def __init__(self) -> None:
         self._graph = StateGraph(dict, context_schema=WorkflowRuntime)
         self._nodes: set[str] = set()
+        self._node_kinds: dict[str, str] = {}
+        self._route_lines: list[str] = []
 
     def node(self, name: str, function: Node) -> "Workflow":
         self._add_node(name, function)
@@ -43,10 +45,12 @@ class Workflow:
                 agent,
                 {"message": _render(message, state)},
                 timeout_seconds=timeout_seconds,
+                step_id=name,
+                route=self.describe_route(),
             )
             return {**state, output: str(result.get("answer", ""))}
 
-        self._add_node(name, call)
+        self._add_node(name, call, kind="agent")
         return self
 
     def tool(
@@ -66,7 +70,7 @@ class Workflow:
             )
             return {**state, output: result}
 
-        self._add_node(name, call)
+        self._add_node(name, call, kind="tool")
         return self
 
     def skill(
@@ -86,7 +90,7 @@ class Workflow:
             )
             return {**state, output: result}
 
-        self._add_node(name, call)
+        self._add_node(name, call, kind="skill")
         return self
 
     def workflow(
@@ -106,11 +110,12 @@ class Workflow:
             )
             return {**state, output: result}
 
-        self._add_node(name, call)
+        self._add_node(name, call, kind="workflow")
         return self
 
     def edge(self, source: str, target: str) -> "Workflow":
         self._graph.add_edge(_endpoint(source), _endpoint(target))
+        self._route_lines.append(f"{source} -> {target}")
         return self
 
     def if_(
@@ -136,6 +141,8 @@ class Workflow:
             route,
             {"then": _endpoint(then), "otherwise": _endpoint(otherwise)},
         )
+        self._route_lines.append(f"{source} -[是]-> {then}")
+        self._route_lines.append(f"{source} -[否]-> {otherwise}")
         return self
 
     def while_(
@@ -162,7 +169,7 @@ class Workflow:
                 return "done"
             return "body" if bool(condition(state)) else "done"
 
-        self._add_node(guard, increment)
+        self._add_node(guard, increment, kind="loop_guard")
         self._graph.add_edge(source, guard)
         self._graph.add_conditional_edges(
             guard,
@@ -170,18 +177,33 @@ class Workflow:
             {"body": body, "done": _endpoint(done)},
         )
         self._graph.add_edge(body, source)
+        self._route_lines.append(
+            f"{source} -[循环，最多 {max_iterations} 次]-> {body} -> {source}"
+        )
+        self._route_lines.append(f"{source} -[结束循环]-> {done}")
         return self
+
+    def describe_route(self) -> str:
+        """Return the stable route summary injected into Agent nodes."""
+        return "\n".join(f"- {line}" for line in self._route_lines) or "- 尚未配置连线"
 
     def compile(self):
         return self._graph.compile()
 
-    def _add_node(self, name: str, function: Callable[..., Any]) -> None:
+    def _add_node(
+        self,
+        name: str,
+        function: Callable[..., Any],
+        *,
+        kind: str = "python",
+    ) -> None:
         if not isinstance(name, str) or not name.strip():
             raise WorkflowContractError("Node name cannot be empty.")
         if name in self._nodes:
             raise WorkflowContractError(f"Duplicate node: {name}")
         self._graph.add_node(name, function)
         self._nodes.add(name)
+        self._node_kinds[name] = kind
 
 
 def _endpoint(value: str):

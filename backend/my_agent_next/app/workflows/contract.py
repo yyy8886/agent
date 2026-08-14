@@ -128,6 +128,8 @@ class _WorkflowGateway(Protocol):
         inputs: WorkflowPayload,
         *,
         timeout_seconds: float | None = None,
+        step_id: str | None = None,
+        route: str | None = None,
     ) -> WorkflowPayload: ...
 
     async def call_tool(
@@ -192,13 +194,19 @@ class WorkflowRuntime:
         inputs: WorkflowPayload,
         *,
         timeout_seconds: float | None = None,
+        step_id: str | None = None,
+        route: str | None = None,
     ) -> WorkflowPayload:
         _validate_identifier(agent_id, "agent_id")
         _validate_timeout(timeout_seconds)
+        step_id = _validate_context_text(step_id, "step_id", 100)
+        route = _validate_context_text(route, "route", 4000)
         result = await _get_gateway().call_agent(
             agent_id,
             normalize_workflow_payload(inputs, label="agent inputs"),
             timeout_seconds=timeout_seconds,
+            step_id=step_id,
+            route=route,
         )
         return normalize_workflow_payload(result, label="agent output")
 
@@ -342,3 +350,18 @@ def _validate_timeout(value: float | None) -> None:
         or value <= 0
     ):
         raise WorkflowContractError("timeout_seconds 必须是大于 0 的有限数字或 None。")
+
+
+def _validate_context_text(
+    value: str | None,
+    label: str,
+    max_length: int,
+) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise WorkflowContractError(f"{label} 必须是非空字符串或 None。")
+    normalized = value.strip()
+    if len(normalized) > max_length:
+        raise WorkflowContractError(f"{label} 不能超过 {max_length} 个字符。")
+    return normalized

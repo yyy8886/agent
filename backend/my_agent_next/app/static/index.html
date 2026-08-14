@@ -634,6 +634,7 @@ index.html — My Agent Next 管理中心
       <li>条件节点的前两条出线会分别标记为“是”和“否”；箭头可以连回前面的节点形成循环，运行仍受递归上限和停止按钮保护。</li>
     </ol>
     <p class="workflow-help-note">可视化画布和高级代码分别保存。画布由后端确定性生成 Workflow SDK 源码，再编译成原生 LangGraph；它不是交给模型解释的提示词。</p>
+    <p class="workflow-help-note">可视化 Agent 节点运行时会自动知道工作流 ID、自己所在的节点、完整路线和其他 Agent 的职责，无需把这些内容重复写进任务模板。</p>
 
     <h3>高级代码：第一步决定每个节点做什么</h3>
     <ol>

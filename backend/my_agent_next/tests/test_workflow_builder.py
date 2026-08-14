@@ -7,7 +7,10 @@ from my_agent_next.workflow_sdk import Workflow, WorkflowRunInfo, WorkflowRuntim
 
 
 class _Gateway:
-    async def call_agent(self, agent_id, inputs, *, timeout_seconds=None):
+    async def call_agent(
+        self, agent_id, inputs, *, timeout_seconds=None, step_id=None, route=None,
+    ):
+        self.last_agent_context = {"step_id": step_id, "route": route}
         return {"answer": f"{agent_id}:{inputs['message']}"}
 
     async def call_tool(self, tool_name, arguments, *, timeout_seconds=None):
@@ -38,13 +41,17 @@ class WorkflowBuilderTests(unittest.IsolatedAsyncioTestCase):
         flow.edge("START", "ask").edge("ask", "END")
 
         runtime = WorkflowRuntime(WorkflowRunInfo("run", "run", "builder"))
-        with _bind_workflow_gateway(_Gateway()):
+        gateway = _Gateway()
+        with _bind_workflow_gateway(gateway):
             result = await flow.compile().ainvoke(
                 {"message": "colors"},
                 context=runtime,
             )
         self.assertEqual(result["answer"], "mabel:Improve colors")
         self.assertEqual(result["message"], "colors")
+        self.assertEqual(gateway.last_agent_context["step_id"], "ask")
+        self.assertIn("START -> ask", gateway.last_agent_context["route"])
+        self.assertIn("ask -> END", gateway.last_agent_context["route"])
 
     async def test_builds_native_condition(self):
         flow = Workflow()

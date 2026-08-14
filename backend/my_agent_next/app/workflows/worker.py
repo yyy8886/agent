@@ -18,7 +18,7 @@ from types import ModuleType
 from typing import Any
 
 import yaml
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from ..agent_runtime import run_agent_runtime
 from ..agent_profile_repository import AgentProfileRepository
@@ -104,20 +104,51 @@ class WorkerGateway:
         if self.cancel_event.is_set():
             raise WorkflowCancelledError("工作流已被用户停止。")
 
-    async def call_agent(self, agent_id: str, inputs: dict, *, timeout_seconds: float | None = None) -> dict:
+    async def call_agent(
+        self,
+        agent_id: str,
+        inputs: dict,
+        *,
+        timeout_seconds: float | None = None,
+        step_id: str | None = None,
+        route: str | None = None,
+    ) -> dict:
         self.raise_if_cancelled()
-        self.emitter.emit("agent_started", {"agent_id": agent_id, "input": inputs}, run_id=self.run_id, parent_run_id=self.parent_run_id)
-        result = await _with_timeout(self._run_agent(agent_id, inputs), timeout_seconds)
+        self.emitter.emit(
+            "agent_started",
+            {"agent_id": agent_id, "input": inputs, "step_id": step_id, "workflow_id": self.workflow_id},
+            run_id=self.run_id,
+            parent_run_id=self.parent_run_id,
+        )
+        result = await _with_timeout(
+            self._run_agent(agent_id, inputs, step_id=step_id, route=route),
+            timeout_seconds,
+        )
         self.emitter.emit("agent_output", {"agent_id": agent_id, "output": result}, run_id=self.run_id, parent_run_id=self.parent_run_id)
         return result
 
-    async def _run_agent(self, agent_id: str, inputs: dict) -> dict:
+    async def _run_agent(
+        self,
+        agent_id: str,
+        inputs: dict,
+        *,
+        step_id: str | None,
+        route: str | None,
+    ) -> dict:
         agent = AgentProfileRepository().get(agent_id)
         if agent is None or not agent.enabled:
             raise WorkflowContractError(f"Agent 不存在或未启用：{agent_id}")
         profile = ChatService.resolve_model_or_raise(agent.model_profile_id)
         user_text = str(inputs.get("message") or json.dumps(inputs, ensure_ascii=False))
         messages, selected_skill_names = build_agent_context_messages(agent, user_text)
+        messages.append(SystemMessage(content=_workflow_agent_context(
+            workflow_id=self.workflow_id,
+            step_id=step_id,
+            route=route,
+            call_depth=self.call_depth,
+            permission_mode=self.spec.permission_mode,
+            dependency_keys=tuple(self.spec.dependencies.get(self.workflow_id, {})),
+        )))
         model = _build_model(profile, allowed_tool_names=_tool_names_for_skills(selected_skill_names))
         for skill_name in selected_skill_names:
             self.emitter.emit(
@@ -364,6 +395,33 @@ def _execute_skill(skill_name: str, arguments: dict) -> dict:
 class _DefaultFormat(dict):
     def __missing__(self, key: str) -> str:
         return ""
+
+
+def _workflow_agent_context(
+    *,
+    workflow_id: str,
+    step_id: str | None,
+    route: str | None,
+    call_depth: int,
+    permission_mode: str,
+    dependency_keys: tuple[str, ...],
+) -> str:
+    current_step = step_id or "高级代码未声明步骤 ID"
+    route_text = route or "- 高级代码未提供路线摘要"
+    dependencies = "、".join(dependency_keys) if dependency_keys else "无"
+    return (
+        "## 当前工作流运行上下文\n"
+        f"- 工作流 ID：{workflow_id}\n"
+        f"- 你当前所在步骤：{current_step}\n"
+        f"- 子工作流调用层级：{call_depth}\n"
+        f"- 权限模式：{permission_mode}\n"
+        f"- 已声明子工作流依赖：{dependencies}\n"
+        "- 完整路线：\n"
+        f"{route_text}\n\n"
+        "你只负责当前步骤。可以利用路线理解上游和下游职责，但不得声称尚未执行的"
+        "节点已经完成，也不得代替其他 Agent 编造结果。当前消息中出现的上游输出才是"
+        "本步骤可使用的实际结果。"
+    )
 
 
 async def _with_timeout(awaitable, timeout_seconds: float | None):

@@ -66,6 +66,24 @@ def build_agent_context_messages(agent, user_content: str) -> tuple[list, list[s
     if parts:
         messages.append(SystemMessage(content=" ".join(parts)))
 
+    current_agent_id = str(getattr(agent, "id", "")).strip()
+    collaborators = [
+        item for item in AgentProfileRepository().list() if item.enabled
+    ]
+    if collaborators:
+        lines = []
+        for item in collaborators:
+            marker = "（当前是你）" if item.id == current_agent_id else ""
+            role = item.role.strip() or "未填写职责"
+            lines.append(f"- {item.name}（ID: {item.id}）{marker}：{role[:160]}")
+        messages.append(SystemMessage(content=(
+            "## Agent 协作目录\n"
+            "以下是本应用中已启用的 Agent 及职责。你可以据此理解分工，但普通对话中"
+            "不得声称已经调用其他 Agent；只有工作流运行上下文或实际工具结果能证明"
+            "协作已经发生。不要模仿其他 Agent 的人设。\n"
+            + "\n".join(lines)
+        )))
+
     from my_agent_next.skills._loader import get as get_skill
     from my_agent_next.skills._router import SkillRouter, build_skill_catalog
 

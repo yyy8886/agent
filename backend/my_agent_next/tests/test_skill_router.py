@@ -2,6 +2,7 @@
 
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from my_agent_next.app.chat_service import build_agent_context_messages
 from my_agent_next.skills._router import SkillRouter
@@ -76,6 +77,31 @@ class SkillRouterTests(unittest.TestCase):
         combined = "\n".join(str(message.content) for message in messages)
         self.assertIn("## 本轮已加载 Skill：address-lookup", combined)
         self.assertIn("scripts/ip_lookup.py", combined)
+
+    def test_agent_catalog_shares_roles_without_other_personas(self):
+        current = SimpleNamespace(
+            id="mabel", name="梅贝尔", role="执行者", persona="当前人设", skills=[]
+        )
+        collaborators = [
+            SimpleNamespace(
+                id="mabel", name="梅贝尔", role="执行者",
+                persona="当前人设", skills=[], enabled=True,
+            ),
+            SimpleNamespace(
+                id="analysis", name="诺登", role="审核者",
+                persona="不应泄漏的诺登完整人设", skills=[], enabled=True,
+            ),
+        ]
+        with patch(
+            "my_agent_next.app.chat_service.AgentProfileRepository.list",
+            return_value=collaborators,
+        ):
+            messages, _ = build_agent_context_messages(current, "你好")
+        combined = "\n".join(str(message.content) for message in messages)
+        self.assertIn("Agent 协作目录", combined)
+        self.assertIn("诺登（ID: analysis）：审核者", combined)
+        self.assertIn("梅贝尔（ID: mabel）（当前是你）", combined)
+        self.assertNotIn("不应泄漏的诺登完整人设", combined)
 
 
 if __name__ == "__main__":

@@ -34,6 +34,8 @@ async def ask_agent(state: State, runtime: Runtime[WorkflowRuntime]) -> dict:
     result = await runtime.context.call_agent(
         "mabel",
         {"message": state["message"]},
+        step_id="ask_agent",
+        route="START -> ask_agent -> END",
     )
     return {"answer": str(result.get("answer", ""))}
 
@@ -50,6 +52,12 @@ def build_workflow():
     graph.add_edge("ask_agent", END)
     return graph.compile()
 ```
+
+`step_id` 和 `route` 是可选的工作流认知信息。简化 `Workflow` Builder 和可视化
+工作流会自动填写；手写高级 LangGraph 时建议显式提供。Worker 会把工作流 ID、当前
+步骤、完整路线、调用层级、权限模式和子工作流依赖作为独立 SystemMessage 交给 Agent。
+所有 Agent 还会获得启用 Agent 的精简名称/ID/职责目录，但不会加载其他 Agent 的完整
+persona，以免发生角色混淆。
 
 输入、输出以及 Runtime 调用参数的顶层都必须是 JSON 对象。路径、字节、集合、
 Python 对象、`NaN` 和 `Infinity` 均不属于公开协议。

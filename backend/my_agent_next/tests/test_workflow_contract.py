@@ -182,7 +182,9 @@ class _ExampleState(TypedDict, total=False):
 class _FakeGateway:
     run_info = WorkflowRunInfo("run", "run", "example", workflow_version=1)
 
-    async def call_agent(self, agent_id, inputs, *, timeout_seconds=None):
+    async def call_agent(
+        self, agent_id, inputs, *, timeout_seconds=None, step_id=None, route=None,
+    ):
         return {"answer": f"{agent_id}: {inputs['message']}"}
 
     async def call_tool(self, tool_name, arguments, *, timeout_seconds=None):

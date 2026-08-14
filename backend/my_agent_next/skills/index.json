@@ -20,6 +20,12 @@
       "sha256": "9078154c41945a2087ec418b6494c62ce5dbad827fa8a8887baf1e9267db7760"
     },
     {
+      "directory": "meow-suffix",
+      "name": "meow-suffix",
+      "description": "让AI对话的每句话结尾都自动带上\"喵\"字，营造可爱亲切的交流风格。当用户要求说话带喵、使用喵语、或希望对话风格变得可爱时触发。",
+      "sha256": "72d0bee85e7d46fc669f40140ca81717fb21a96d7712e52f9f187954188aac2c"
+    },
+    {
       "directory": "openai-docs",
       "name": "openai-docs",
       "description": "Use for Codex models/pricing, scheduled tasks, skills, settings, setup, troubleshooting, customization, automations, and self-knowledge—including 'you,' 'your,' 'this app,' or 'this coding agent' when they refer to Codex—and for OpenAI APIs/products and ChatGPT Work. Also use for model choice/migration, prompting, SDKs, Responses, Realtime, agents, evals, and Chat/Work/Codex comparisons. Do not use for generic app/software tasks that merely mention Codex.",
@@ -41,7 +47,7 @@
       "directory": "skill-creator",
       "name": "skill-creator",
       "description": "Create or update Skills for this application. Use when users want to add a specialized workflow, domain knowledge, bundled script, reference, or tool integration.",
-      "sha256": "840b922755224f31a4d33cac04062bd5fdb97153dc3d5b75e6de35f85b99e5bd"
+      "sha256": "b9ef225384bb8957c2646847c1422bb40dfd02107209b20708ec5b5bbf1f0df8"
     },
     {
       "directory": "skill-installer",

@@ -22,6 +22,7 @@ import yaml
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from .agent_profile_repository import AgentProfileRepository
+from .agent_profile import SKILL_NAME_PATTERN
 from .api_profile_repository import ApiProfileRepository
 from .chat_repository import ChatRepository
 from .tools import ALL_TOOLS, TOOL_BY_NAME
@@ -223,6 +224,10 @@ class ChatService:
             ]
         allowed_tool_names = _tool_names_for_skills(selected_skill_names)
         model = _build_model(profile, allowed_tool_names=allowed_tool_names)
+        skill_directories_before = (
+            _indexed_skill_directories()
+            if "skill-creator" in selected_skill_names else set()
+        )
 
         # 存用户消息
         self.repo.save_message(thread_id, "user", user_content)
@@ -338,6 +343,20 @@ class ChatService:
 
                     # ── 执行工具 ──────────────────────────────────────
                     result = await self._execute_tool(tool_name, tool_args)
+
+                    newly_bound = []
+                    if "skill-creator" in selected_skill_names:
+                        newly_bound = _bind_newly_created_skills(
+                            agent_id, skill_directories_before
+                        )
+                        skill_directories_before.update(newly_bound)
+                        if newly_bound:
+                            result = (
+                                f"{result}\n已自动绑定到当前 Agent："
+                                + "、".join(newly_bound)
+                            )
+                            for skill_name in newly_bound:
+                                yield f"data: {json.dumps({'event': 'skill', 'data': {'name': skill_name, 'summary': '已创建并自动绑定到当前 Agent'}})}\n\n"
 
                     yield f"data: {json.dumps({'event': 'tool_result', 'data': {'name': tool_name, 'result': str(result)[:500]}})}\n\n"
 
@@ -455,6 +474,26 @@ def _tool_names_for_skills(selected_skill_names: list[str]) -> set[str] | None:
     if not restricted:
         return None
     return set.intersection(*restricted)
+
+
+def _indexed_skill_directories() -> set[str]:
+    from my_agent_next.skills._loader import ensure_index
+
+    return {str(item["directory"]) for item in ensure_index()["skills"]}
+
+
+def _bind_newly_created_skills(
+    agent_id: str,
+    directories_before: set[str],
+    repository: AgentProfileRepository | None = None,
+) -> list[str]:
+    """Bind valid Skill directories first indexed during this creator run."""
+    repository = repository or AgentProfileRepository()
+    candidates = sorted(_indexed_skill_directories() - directories_before)
+    return [
+        name for name in candidates
+        if SKILL_NAME_PATTERN.fullmatch(name) and repository.add_skill(agent_id, name)
+    ]
 
 
 def _is_valid_review_response(text: str) -> bool:

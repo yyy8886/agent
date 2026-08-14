@@ -150,6 +150,10 @@ def get(name: str) -> SkillInfo | None:
 def available_skill_choices() -> list[dict]:
     """Read lightweight metadata directly from the persistent index."""
     return [
-        {"name": item["name"], "description": item["description"]}
+        {
+            "name": item["directory"],
+            "display_name": item["name"],
+            "description": item["description"],
+        }
         for item in ensure_index()["skills"]
     ]

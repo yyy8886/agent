@@ -2,8 +2,14 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from my_agent_next.skills._loader import INDEX_VERSION, ensure_index, rebuild_index
+from my_agent_next.skills._loader import (
+    INDEX_VERSION,
+    available_skill_choices,
+    ensure_index,
+    rebuild_index,
+)
 
 
 def write_skill(root: Path, directory: str, name: str, description: str) -> None:
@@ -16,6 +22,24 @@ def write_skill(root: Path, directory: str, name: str, description: str) -> None
 
 
 class SkillIndexTests(unittest.TestCase):
+    def test_choices_use_directory_as_binding_key_and_frontmatter_as_display_name(self):
+        index = {
+            "skills": [{
+                "directory": "miao-qids",
+                "name": "MiaoQIDS",
+                "description": "Miao QIDS tools",
+            }]
+        }
+        with patch("my_agent_next.skills._loader.ensure_index", return_value=index):
+            self.assertEqual(
+                available_skill_choices(),
+                [{
+                    "name": "miao-qids",
+                    "display_name": "MiaoQIDS",
+                    "description": "Miao QIDS tools",
+                }],
+            )
+
     def test_rebuild_persists_metadata_without_body(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

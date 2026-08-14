@@ -85,6 +85,28 @@ class AgentProfileRepository:
                  int(profile.enabled)),
             )
 
+    def add_skill(self, agent_id: str, skill_name: str) -> bool:
+        """Atomically append a Skill binding without overwriting other Agent fields."""
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                "SELECT skills FROM agents WHERE id = ?", (agent_id,)
+            ).fetchone()
+            if row is None:
+                return False
+            skills = json.loads(row["skills"])
+            if skill_name in skills:
+                return False
+            skills.append(skill_name)
+            connection.execute(
+                """
+                UPDATE agents
+                SET skills = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (json.dumps(skills, ensure_ascii=False), agent_id),
+            )
+        return True
+
     def delete(self, agent_id: str) -> bool:
         with closing(self._connect()) as connection, connection:
             cursor = connection.execute("DELETE FROM agents WHERE id = ?", (agent_id,))

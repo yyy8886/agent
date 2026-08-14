@@ -160,24 +160,25 @@ def get_skill_detail(source: str, slug: str, url: str = Query(default=""), owner
 def _get_clawhub_skill(slug: str, owner_handle: str = "") -> dict:
     """获取 ClawHub Skill 详情。
 
-    如果有 owner_handle，使用 @owner/slug 格式消除歧义。
-    如果有同名 Skill，409 时自动取第一个匹配项。
+    ClawHub v1 详情接口使用裸 slug。owner_handle 仅用于在 409
+    同名冲突响应中选择正确作者，不能拼进详情 URL。
     """
     try:
-        # 使用 owner/slug 格式消除歧义
-        if owner_handle:
-            qualified = f"@{owner_handle}/{slug}"
-            resp = _client.get(f"{CLAWHUB_BASE}/skills/{qualified}")
-        else:
-            resp = _client.get(f"{CLAWHUB_BASE}/skills/{slug}")
+        resp = _client.get(f"{CLAWHUB_BASE}/skills/{slug}")
 
         # 409 冲突：有多个同名 Skill
         if resp.status_code == 409:
             data = resp.json()
             matches = data.get("matches", [])
             if matches:
-                # 取第一个匹配项的 ref（如 @owner/slug）
-                ref = matches[0].get("ref", matches[0].get("url", ""))
+                selected = next(
+                    (
+                        match for match in matches
+                        if owner_handle and _clawhub_match_owner(match) == owner_handle
+                    ),
+                    matches[0] if not owner_handle else None,
+                )
+                ref = (selected or {}).get("slug", "")
                 if ref:
                     resp = _client.get(f"{CLAWHUB_BASE}/skills/{ref}")
                 else:
@@ -202,6 +203,13 @@ def _get_clawhub_skill(slug: str, owner_handle: str = "") -> dict:
         }
     except httpx.HTTPError:
         raise HTTPException(502, "ClawHub 请求失败")
+
+
+def _clawhub_match_owner(match: dict) -> str:
+    owner = match.get("ownerHandle") or match.get("owner") or match.get("publisher") or ""
+    if isinstance(owner, dict):
+        return str(owner.get("handle") or owner.get("displayName") or "")
+    return str(owner).lstrip("@").split("/")[0]
 
 
 def _get_skillsmp_skill(slug: str, github_url: str = "") -> dict:
@@ -403,7 +411,11 @@ def _download_and_extract_clawhub(slug: str, name: str) -> int:
                     rel_path = "/".join(parts[1:])
                 else:
                     rel_path = filename
-                dest = skill_dir / rel_path
+                dest = (skill_dir / rel_path).resolve()
+                try:
+                    dest.relative_to(skill_dir.resolve())
+                except ValueError:
+                    continue
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 try:
                     content = zf.read(info.filename)

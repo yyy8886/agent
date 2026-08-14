@@ -723,7 +723,10 @@ function renderAgents() {
 function agentCard(a) {
   const dd = !a.enabled ? '<span class="badge badge-disabled">已停用</span>' : "";
   const skillsHtml = a.skills.length
-    ? a.skills.map(s => `<span class="skill-tag">${esc(s)}</span>`).join("")
+    ? a.skills.map(s => {
+        const skill = allSkills.find(item => item.name === s);
+        return `<span class="skill-tag">${esc(skill?.display_name || s)}</span>`;
+      }).join("")
     : '<span class="skill-tag-empty">无 Skill</span>';
   const modelInfo = a.model_profile_id
     ? (() => { const m = modelOptions.find(x=>x.id===a.model_profile_id); return m ? `${esc(m.name)} (${esc(m.model)})` : esc(a.model_profile_id); })()
@@ -751,7 +754,7 @@ function populateSkillSuggestions() {
   const suggestions = allSkills.filter(s => !existing.includes(s.name.toLowerCase()));
   if (!suggestions.length) { container.innerHTML = ""; return; }
   container.innerHTML = '<span style="font-weight:600">已有 Skill：</span>' +
-    suggestions.map(s => `<span style="cursor:pointer;color:var(--accent);margin:0 4px" onclick="addSkillFromSuggestion('${esc(s.name)}')">+${esc(s.name)}</span>`).join("");
+    suggestions.map(s => `<span style="cursor:pointer;color:var(--accent);margin:0 4px" onclick="addSkillFromSuggestion('${esc(s.name)}')">+${esc(s.display_name || s.name)}</span>`).join("");
 }
 
 function addSkillTag(name) {
@@ -783,11 +786,14 @@ window.removeSkillTag = removeSkillTag;
 
 function renderSkillTags() {
   const container = $("#skillTags");
-  container.innerHTML = agentSkillTags.map(t =>
+  container.innerHTML = agentSkillTags.map(t => {
+    const skill = allSkills.find(item => item.name === t);
+    const label = skill?.display_name || t;
+    return (
     `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:999px;font-size:.78rem;font-weight:600;background:rgba(108,140,255,.15);color:var(--accent)">
-      ${esc(t)}<span style="cursor:pointer;opacity:.7" onclick="removeSkillTag('${esc(t)}')">&times;</span>
-    </span>`
-  ).join("");
+      ${esc(label)}<span style="cursor:pointer;opacity:.7" onclick="removeSkillTag('${esc(t)}')">&times;</span>
+    </span>`);
+  }).join("");
 }
 
 function setAgentSkillTags(skills) {
@@ -1123,7 +1129,7 @@ async function loadInstalledSkills() {
       return `<div class="card">
         <div class="card-header">
           <div>
-            <div class="card-title">${esc(s.name)}${badge}</div>
+            <div class="card-title">${esc(s.display_name || s.name)}${badge}</div>
           </div>
         </div>
         <div class="card-body">

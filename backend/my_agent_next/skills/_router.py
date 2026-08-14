@@ -26,7 +26,10 @@ ROUTING_HINTS: dict[str, tuple[str, ...]] = {
         "代码审查", "审查代码", "审查改动", "只读审查", "review代码",
         "review code", "review-agent", "检查这个diff", "检查 diff",
     ),
-    "skill-creator": ("创建skill", "创建一个skill", "新建skill", "修改skill", "更新skill", "编写skill"),
+    "skill-creator": (
+        "创建skill", "创建一个skill", "新建skill", "修改skill", "更新skill", "编写skill",
+        "create a skill", "create skill", "new skill", "update skill", "edit skill",
+    ),
     "skill-installer": ("安装skill", "可安装的skill", "可安装skill", "从github安装", "skill市场"),
     "user-memory": ("记住我", "记住这个", "我的偏好", "我叫什么", "忘掉我", "删除记忆", "用户记忆"),
 }
@@ -52,7 +55,11 @@ class SkillRouter:
                 if re.sub(r"\s+", "", hint.casefold()) in compact
             ]
             if name == "skill-creator" and "skill" in compact and any(
-                action in compact for action in ("创建", "新建", "编写", "修改", "更新")
+                action in compact
+                for action in (
+                    "创建", "新建", "编写", "修改", "更新",
+                    "create", "new", "write", "edit", "update",
+                )
             ):
                 matched.append("创建/修改 + Skill")
             if name == "skill-installer" and "skill" in compact and any(

@@ -39,6 +39,11 @@ class SkillRouterTests(unittest.TestCase):
     def test_conversation_loads_no_specialized_skill(self):
         self.assertEqual(self.router.select("你好，今天过得怎么样？", MABEL_SKILLS), [])
 
+    def test_routes_english_skill_creation(self):
+        self.assert_routes_to(
+            "Create a Skill that appends meow to every reply", "skill-creator"
+        )
+
     def test_routes_chinese_read_only_review_request(self):
         selected = self.router.select(
             "请实际只读审查 my_agent_next/app/tools/bash.py。", MABEL_SKILLS

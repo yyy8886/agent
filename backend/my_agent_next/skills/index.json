@@ -62,10 +62,10 @@
       "sha256": "4c23062012d2db071eb902cba467ff0cc1023d2e1ab3c33623ca0dff145d365b"
     },
     {
-      "directory": "weather",
-      "name": "weather",
-      "description": "查询指定城市的实时天气、温度、湿度、风速和未来预报。当用户询问天气、气温、是否下雨、穿衣建议等时使用。需要联网获取实时数据。",
-      "sha256": "b5e99dc4144aae867aa73802e8a7148b4b0663b9b5e4c32c6b76edc397bd37f4"
+      "directory": "weather-skill",
+      "name": "weather-skill",
+      "description": "Query current weather conditions for any city using the free wttr.in API (no API key required). Use when the user asks about the weather, temperature, humidity, wind, or air quality for a specific city or location, such as \"北京天气\", \"今天上海天气怎么样\", \"what's the weather in Tokyo\". Automatically recognizes city names from natural language and returns temperature, weather condition, humidity, wind, and air quality. Best suited for quick weather lookups on the host machine.",
+      "sha256": "060bc8ea19b9b48ecc7cf5e8d732f32a669422e7256532e4de394389f83cbcd5"
     }
   ]
 }

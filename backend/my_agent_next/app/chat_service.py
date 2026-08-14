@@ -245,7 +245,16 @@ class ChatService:
 
         for iteration in range(MAX_AGENT_ITERATIONS):
             try:
-                response = await model.ainvoke(messages)
+                response = None
+                hold_for_review = "review-agent" in selected_skill_names
+                async for chunk in model.astream(messages):
+                    response = chunk if response is None else response + chunk
+                    chunk_text = _message_text(chunk)
+                    if chunk_text:
+                        if not hold_for_review:
+                            yield f"data: {json.dumps({'token': chunk_text})}\n\n"
+                if response is None:
+                    raise RuntimeError("模型没有返回任何内容")
             except Exception as exc:
                 yield f"data: {json.dumps({'error': str(exc)[:500]})}\n\n"
                 return
@@ -253,7 +262,7 @@ class ChatService:
             # 检查是否有工具调用
             if hasattr(response, "tool_calls") and response.tool_calls:
                 tool_calls = response.tool_calls
-                content = response.content if hasattr(response, "content") else ""
+                content = _message_text(response)
 
                 # 添加 AI 消息到历史
                 ai_msg = AIMessage(content=str(content) if content else "")
@@ -369,7 +378,7 @@ class ChatService:
                 continue
 
             # 没有工具调用 → 最终文本回复
-            text = response.content if hasattr(response, "content") else str(response)
+            text = _message_text(response)
             if "review-agent" in selected_skill_names and not _is_valid_review_response(text):
                 if not review_format_retry_used:
                     review_format_retry_used = True
@@ -386,9 +395,10 @@ class ChatService:
                 return
             if text:
                 full_response += text
-            # 流式输出最终文本
-            for char in _chunk_text(text):
-                yield f"data: {json.dumps({'token': char})}\n\n"
+            # review-agent 的完整结果必须先通过格式校验；其他响应已在
+            # model.astream() 产生内容块时实时发送。
+            if hold_for_review:
+                yield f"data: {json.dumps({'token': text})}\n\n"
             break
 
         else:
@@ -458,10 +468,20 @@ class ChatService:
             pass
 
 
-def _chunk_text(text: str, size: int = 4):
-    """将文本按字符分块，模拟流式输出。"""
-    for i in range(0, len(text), size):
-        yield text[i:i + size]
+def _message_text(message) -> str:
+    """Normalize text from LangChain message and message-chunk content."""
+    content = getattr(message, "content", message)
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                parts.append(str(block.get("text", "")))
+        return "".join(parts)
+    return str(content) if content is not None else ""
 
 
 def _tool_names_for_skills(selected_skill_names: list[str]) -> set[str] | None:

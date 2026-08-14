@@ -562,7 +562,10 @@ function switchTab(tab) {
   document.getElementById("btnNewProfile").style.display = tab==="profiles"?"":"none";
   document.getElementById("btnNewAgent").style.display = tab==="agents"?"":"none";
   document.getElementById("btnNewThread").style.display = tab==="workspace"?"":"none";
-  if (tab === "workspace") workspaceInit();
+  // An active SSE request keeps updating the existing workspace DOM while the
+  // tab is hidden. Reloading from the database here would erase that draft
+  // because assistant messages are persisted only after generation finishes.
+  if (tab === "workspace" && !wsStreaming) workspaceInit();
   if (tab === "marketplace") { loadInstalledSkills(); if (!mpHasSearched) mpSearch(""); }
 }
 window.switchTab = switchTab;

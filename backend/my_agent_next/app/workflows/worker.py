@@ -18,8 +18,9 @@ from types import ModuleType
 from typing import Any
 
 import yaml
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import HumanMessage
 
+from ..agent_runtime import run_agent_runtime
 from ..agent_profile_repository import AgentProfileRepository
 from ..chat_service import (
     ChatService,
@@ -127,35 +128,65 @@ class WorkerGateway:
             )
         messages.append(HumanMessage(content=user_text))
 
-        for _ in range(MAX_AGENT_ITERATIONS):
-            self.raise_if_cancelled()
-            response = await model.ainvoke(messages)
-            tool_calls = getattr(response, "tool_calls", None) or []
-            if not tool_calls:
-                return {"answer": _message_text(response)}
-            messages.append(AIMessage(content=_message_text(response), tool_calls=tool_calls))
-            for tool_call in tool_calls:
-                self.raise_if_cancelled()
-                name = str(tool_call.get("name", ""))
-                arguments = tool_call.get("args", {}) or {}
-                call_id = str(tool_call.get("id", ""))
-                self.emitter.emit("agent_tool_call", {"agent_id": agent_id, "tool": name, "arguments": arguments}, run_id=self.run_id, parent_run_id=self.parent_run_id)
-                dangerous = name == "run_bash" and is_dangerous_command(str(arguments.get("command", "")))
-                if self.spec.permission_mode == "manual" and dangerous:
-                    result = "工作流手动模式拒绝了危险工具调用。"
-                else:
-                    tool = TOOL_BY_NAME.get(name)
-                    if tool is None:
-                        result = f"未知工具：{name}"
-                    else:
-                        try:
-                            result = await asyncio.to_thread(tool.invoke, arguments)
-                        except Exception as exc:
-                            result = f"工具执行错误：{exc}"
-                result_text = str(result)
-                self.emitter.emit("agent_tool_result", {"agent_id": agent_id, "tool": name, "output": result_text}, run_id=self.run_id, parent_run_id=self.parent_run_id)
-                messages.append(ToolMessage(content=result_text, tool_call_id=call_id))
-        raise RuntimeError(f"Agent 达到最大工具调用次数（{MAX_AGENT_ITERATIONS}）。")
+        async def emit(event: str, data: dict) -> None:
+            if event == "token":
+                self.emitter.emit(
+                    "agent_token",
+                    {"agent_id": agent_id, "text": data.get("text", "")},
+                    run_id=self.run_id,
+                    parent_run_id=self.parent_run_id,
+                )
+            elif event == "tool_call":
+                self.emitter.emit(
+                    "agent_tool_call",
+                    {
+                        "agent_id": agent_id,
+                        "tool": data.get("name", ""),
+                        "arguments": data.get("args", {}),
+                    },
+                    run_id=self.run_id,
+                    parent_run_id=self.parent_run_id,
+                )
+            elif event == "tool_result":
+                self.emitter.emit(
+                    "agent_tool_result",
+                    {
+                        "agent_id": agent_id,
+                        "tool": data.get("name", ""),
+                        "output": data.get("result", ""),
+                    },
+                    run_id=self.run_id,
+                    parent_run_id=self.parent_run_id,
+                )
+
+        async def execute_tool(name: str, arguments: dict, call_id: str) -> str:
+            dangerous = name == "run_bash" and is_dangerous_command(
+                str(arguments.get("command", ""))
+            )
+            if self.spec.permission_mode == "manual" and dangerous:
+                return "工作流手动模式拒绝了危险工具调用。"
+            tool = TOOL_BY_NAME.get(name)
+            if tool is None:
+                return f"未知工具：{name}"
+            try:
+                return str(await asyncio.to_thread(tool.invoke, arguments))
+            except Exception as exc:
+                return f"工具执行错误：{exc}"
+
+        from ..chat_service import _is_valid_review_response
+
+        result = await run_agent_runtime(
+            messages=messages,
+            model=model,
+            selected_skill_names=selected_skill_names,
+            max_iterations=MAX_AGENT_ITERATIONS,
+            emit=emit,
+            execute_tool=execute_tool,
+            message_text=_message_text,
+            validate_review=_is_valid_review_response,
+            check_cancelled=self.raise_if_cancelled,
+        )
+        return {"answer": result.answer}
 
     async def call_tool(self, tool_name: str, arguments: dict, *, timeout_seconds: float | None = None) -> dict:
         self.raise_if_cancelled()

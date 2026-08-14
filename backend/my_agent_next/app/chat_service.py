@@ -19,8 +19,9 @@ import re
 from pathlib import Path
 
 import yaml
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
+from .agent_runtime import run_agent_runtime
 from .agent_profile_repository import AgentProfileRepository
 from .agent_profile import SKILL_NAME_PATTERN
 from .api_profile_repository import ApiProfileRepository
@@ -230,172 +231,112 @@ class ChatService:
         if thread and not thread.get("title"):
             self.repo.update_thread_title(thread_id, user_content[:40])
 
-        # ── Agent 循环 ──────────────────────────────────────────────────
-        full_response = ""
-        tool_calls_log: list[dict] = []
-        review_format_retry_used = False
+        # AgentRuntime owns the model/tool loop. This layer only translates
+        # runtime events into chat SSE and performs interactive permission I/O.
+        runtime_events: asyncio.Queue[tuple[str, dict]] = asyncio.Queue()
 
-        for iteration in range(MAX_AGENT_ITERATIONS):
-            try:
-                response = None
-                hold_for_review = "review-agent" in selected_skill_names
-                async for chunk in model.astream(messages):
-                    response = chunk if response is None else response + chunk
-                    chunk_text = _message_text(chunk)
-                    if chunk_text:
-                        if not hold_for_review:
-                            yield f"data: {json.dumps({'token': chunk_text})}\n\n"
-                if response is None:
-                    raise RuntimeError("模型没有返回任何内容")
-            except Exception as exc:
-                yield f"data: {json.dumps({'error': str(exc)[:500]})}\n\n"
-                return
+        async def emit(event: str, data: dict) -> None:
+            await runtime_events.put((event, data))
 
-            # 检查是否有工具调用
-            if hasattr(response, "tool_calls") and response.tool_calls:
-                tool_calls = response.tool_calls
-                content = _message_text(response)
+        async def execute_tool(tool_name: str, tool_args: dict, call_id: str) -> str:
+            if tool_name == "ask_user_question":
+                questions_str = str(tool_args.get("questions_json", ""))
+                try:
+                    questions = json.loads(questions_str)
+                except json.JSONDecodeError:
+                    questions = [{
+                        "question": questions_str,
+                        "header": "问题",
+                        "options": [],
+                        "multiSelect": False,
+                    }]
+                question_key = f"{thread_id}:{call_id}"
+                await emit("ask_user", {"call_id": call_id, "questions": questions})
+                event = asyncio.Event()
+                _question_pending[question_key] = event
+                try:
+                    await asyncio.wait_for(event.wait(), timeout=300.0)
+                except asyncio.TimeoutError:
+                    return "用户未在超时时间内回答。"
+                finally:
+                    _question_pending.pop(question_key, None)
+                answer_data = _question_answers.pop(question_key, {})
+                return json.dumps(answer_data.get("answers", []), ensure_ascii=False)
 
-                # 添加 AI 消息到历史
-                ai_msg = AIMessage(content=str(content) if content else "")
-                if hasattr(ai_msg, "tool_calls"):
-                    ai_msg.tool_calls = tool_calls
-                messages.append(ai_msg)
+            allowed = True
+            if permission_mode == PermissionMode.MANUAL.value:
+                key = f"{thread_id}:{call_id}"
+                dangerous = tool_name == "run_bash" and is_dangerous_command(
+                    str(tool_args.get("command", ""))
+                )
+                await emit("tool_confirm", {
+                    "confirm_id": call_id,
+                    "name": tool_name,
+                    "args": tool_args,
+                    "dangerous": dangerous,
+                })
+                event = asyncio.Event()
+                _pending[key] = event
+                try:
+                    await asyncio.wait_for(event.wait(), timeout=120.0)
+                except asyncio.TimeoutError:
+                    allowed = False
+                else:
+                    allowed = _decisions.pop(key, {}).get("allowed", False)
+                finally:
+                    _pending.pop(key, None)
+            if not allowed:
+                return "用户拒绝了此操作。请尝试其他方式或向用户解释。"
 
-                if content:
-                    full_response += str(content)
+            result = await self._execute_tool(tool_name, tool_args)
+            if "skill-creator" in selected_skill_names:
+                newly_bound = _bind_newly_created_skills(
+                    agent_id, skill_directories_before
+                )
+                skill_directories_before.update(newly_bound)
+                if newly_bound:
+                    result = f"{result}\n已自动绑定到当前 Agent：" + "、".join(newly_bound)
+                    for skill_name in newly_bound:
+                        await emit("skill", {
+                            "name": skill_name,
+                            "summary": "已创建并自动绑定到当前 Agent",
+                        })
+            return result
 
-                # 逐个执行工具调用
-                for tc in tool_calls:
-                    tool_name = tc.get("name", "")
-                    tool_args = tc.get("args", {})
-                    tc_id = tc.get("id", "")
-
-                    tool_calls_log.append({"name": tool_name, "args": tool_args})
-
-                    # 通知前端工具调用
-                    yield f"data: {json.dumps({'event': 'tool_call', 'data': {'name': tool_name, 'args': tool_args}})}\n\n"
-
-                    # ── ask_user_question 拦截 ──────────────────────
-                    if tool_name == "ask_user_question":
-                        questions_str = str(tool_args.get("questions_json", ""))
-                        try:
-                            questions = json.loads(questions_str)
-                        except json.JSONDecodeError:
-                            questions = [{"question": questions_str, "header": "问题", "options": [], "multiSelect": False}]
-
-                        question_key = f"{thread_id}:{tc_id}"
-                        yield f"data: {json.dumps({'event': 'ask_user', 'data': {'call_id': tc_id, 'questions': questions}})}\n\n"
-
-                        # 等待用户回答
-                        event = asyncio.Event()
-                        _question_pending[question_key] = event
-                        try:
-                            await asyncio.wait_for(event.wait(), timeout=300.0)
-                        except asyncio.TimeoutError:
-                            _question_pending.pop(question_key, None)
-                            answer_text = "用户未在超时时间内回答。"
-                        else:
-                            _question_pending.pop(question_key, None)
-                            answer_data = _question_answers.pop(question_key, {})
-                            answers = answer_data.get("answers", [])
-                            answer_text = json.dumps(answers, ensure_ascii=False)
-
-                        messages.append(ToolMessage(
-                            content=answer_text,
-                            tool_call_id=tc_id,
-                        ))
-                        yield f"data: {json.dumps({'event': 'tool_result', 'data': {'name': tool_name, 'result': answer_text[:500]}})}\n\n"
-                        continue
-
-                    # ── 权限检查 ──────────────────────────────────────
-                    allowed = True
-                    if permission_mode == PermissionMode.MANUAL.value:
-                        key = f"{thread_id}:{tc_id}"
-                        is_dangerous = (
-                            tool_name == "run_bash"
-                            and is_dangerous_command(str(tool_args.get("command", "")))
-                        )
-                        # yield 确认事件
-                        yield f"data: {json.dumps({'event': 'tool_confirm', 'data': {'confirm_id': tc_id, 'name': tool_name, 'args': tool_args, 'dangerous': is_dangerous}})}\n\n"
-                        # 等待用户响应
-                        event = asyncio.Event()
-                        _pending[key] = event
-                        try:
-                            await asyncio.wait_for(event.wait(), timeout=120.0)
-                        except asyncio.TimeoutError:
-                            _pending.pop(key, None)
-                            allowed = False
-                        else:
-                            _pending.pop(key, None)
-                            decision = _decisions.pop(key, {})
-                            allowed = decision.get("allowed", False)
-
-                    elif permission_mode == PermissionMode.AUTO.value:
-                        allowed = True
-
-                    if not allowed:
-                        messages.append(ToolMessage(
-                            content="用户拒绝了此操作。请尝试其他方式或向用户解释。",
-                            tool_call_id=tc_id,
-                        ))
-                        yield f"data: {json.dumps({'event': 'tool_result', 'data': {'name': tool_name, 'result': '用户拒绝', 'allowed': False}})}\n\n"
-                        continue
-
-                    # ── 执行工具 ──────────────────────────────────────
-                    result = await self._execute_tool(tool_name, tool_args)
-
-                    newly_bound = []
-                    if "skill-creator" in selected_skill_names:
-                        newly_bound = _bind_newly_created_skills(
-                            agent_id, skill_directories_before
-                        )
-                        skill_directories_before.update(newly_bound)
-                        if newly_bound:
-                            result = (
-                                f"{result}\n已自动绑定到当前 Agent："
-                                + "、".join(newly_bound)
-                            )
-                            for skill_name in newly_bound:
-                                yield f"data: {json.dumps({'event': 'skill', 'data': {'name': skill_name, 'summary': '已创建并自动绑定到当前 Agent'}})}\n\n"
-
-                    yield f"data: {json.dumps({'event': 'tool_result', 'data': {'name': tool_name, 'result': str(result)[:500]}})}\n\n"
-
-                    messages.append(ToolMessage(
-                        content=str(result),
-                        tool_call_id=tc_id,
-                    ))
-
-                # 继续循环，让 LLM 处理工具结果
-                continue
-
-            # 没有工具调用 → 最终文本回复
-            text = _message_text(response)
-            if "review-agent" in selected_skill_names and not _is_valid_review_response(text):
-                if not review_format_retry_used:
-                    review_format_retry_used = True
-                    messages.append(AIMessage(content=str(text)))
-                    messages.append(SystemMessage(content=(
-                        "Your review result violated the required output contract. Rewrite only the "
-                        "final answer now. Start with either '[P0]' through '[P3]' in the exact "
-                        "'[P#] title — path:line' form, or 'No findings.'. End with exactly one "
-                        "'Overall assessment:' line and one 'Test gaps or residual risks:' line. "
-                        "Do not use headings, tables, emojis, scratch analysis, or call tools."
-                    )))
+        runtime_task = asyncio.create_task(run_agent_runtime(
+            messages=messages,
+            model=model,
+            selected_skill_names=selected_skill_names,
+            max_iterations=MAX_AGENT_ITERATIONS,
+            emit=emit,
+            execute_tool=execute_tool,
+            message_text=_message_text,
+            validate_review=_is_valid_review_response,
+        ))
+        try:
+            while not runtime_task.done() or not runtime_events.empty():
+                try:
+                    event, data = await asyncio.wait_for(runtime_events.get(), timeout=0.05)
+                except asyncio.TimeoutError:
                     continue
-                yield f"data: {json.dumps({'error': 'review-agent returned an invalid final format after one correction attempt'})}\n\n"
-                return
-            if text:
-                full_response += text
-            # review-agent 的完整结果必须先通过格式校验；其他响应已在
-            # model.astream() 产生内容块时实时发送。
-            if hold_for_review:
-                yield f"data: {json.dumps({'token': text})}\n\n"
-            break
-
-        else:
-            # 达到最大迭代次数
-            yield f"data: {json.dumps({'error': f'达到最大工具调用次数（{MAX_AGENT_ITERATIONS}）'})}\n\n"
+                if event == "token":
+                    yield f"data: {json.dumps({'token': data.get('text', '')})}\n\n"
+                elif event == "tool_call":
+                    yield f"data: {json.dumps({'event': 'tool_call', 'data': {'name': data.get('name', ''), 'args': data.get('args', {})}})}\n\n"
+                elif event == "tool_result":
+                    yield f"data: {json.dumps({'event': 'tool_result', 'data': {'name': data.get('name', ''), 'result': str(data.get('result', ''))[:500]}})}\n\n"
+                else:
+                    yield f"data: {json.dumps({'event': event, 'data': data})}\n\n"
+            runtime_result = await runtime_task
+            full_response = runtime_result.answer
+        except Exception as exc:
+            if not runtime_task.done():
+                runtime_task.cancel()
+            yield f"data: {json.dumps({'error': str(exc)[:500]})}\n\n"
+            return
+        finally:
+            if not runtime_task.done():
+                runtime_task.cancel()
 
         # ── 自动提取用户记忆（在 done 之前，让前端折叠栏能展示） ──
         if agent and "user-memory" in (agent.skills or []) and full_response:

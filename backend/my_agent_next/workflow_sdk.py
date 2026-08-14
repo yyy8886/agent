@@ -12,6 +12,7 @@ from .app.workflows.contract import (
     WorkflowRuntime,
     normalize_workflow_payload,
 )
+from .app.workflows.builder import Workflow
 
 __all__ = sorted(_PUBLIC_WORKFLOW_SDK_SYMBOLS)
 del _PUBLIC_WORKFLOW_SDK_SYMBOLS

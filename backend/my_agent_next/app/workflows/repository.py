@@ -33,6 +33,8 @@ class WorkflowRepository:
                     name TEXT NOT NULL,
                     description TEXT NOT NULL DEFAULT '',
                     draft_source TEXT NOT NULL DEFAULT '',
+                    editor_mode TEXT NOT NULL DEFAULT 'code',
+                    visual_graph TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
@@ -47,6 +49,17 @@ class WorkflowRepository:
                 );
                 """
             )
+            columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(workflows)")
+            }
+            if "editor_mode" not in columns:
+                connection.execute(
+                    "ALTER TABLE workflows ADD COLUMN editor_mode TEXT NOT NULL DEFAULT 'code'"
+                )
+            if "visual_graph" not in columns:
+                connection.execute(
+                    "ALTER TABLE workflows ADD COLUMN visual_graph TEXT NOT NULL DEFAULT ''"
+                )
             connection.commit()
 
     def list(self) -> list[WorkflowDraft]:
@@ -73,14 +86,23 @@ class WorkflowRepository:
                 connection.execute("BEGIN")
                 if create:
                     connection.execute(
-                        "INSERT INTO workflows (id, name, description, draft_source) VALUES (?, ?, ?, ?)",
-                        (draft.id, draft.name, draft.description, draft.draft_source),
+                        "INSERT INTO workflows "
+                        "(id, name, description, draft_source, editor_mode, visual_graph) "
+                        "VALUES (?, ?, ?, ?, ?, ?)",
+                        (
+                            draft.id, draft.name, draft.description,
+                            draft.draft_source, draft.editor_mode, draft.visual_graph,
+                        ),
                     )
                 else:
                     cursor = connection.execute(
                         "UPDATE workflows SET name = ?, description = ?, draft_source = ?, "
+                        "editor_mode = ?, visual_graph = ?, "
                         "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                        (draft.name, draft.description, draft.draft_source, draft.id),
+                        (
+                            draft.name, draft.description, draft.draft_source,
+                            draft.editor_mode, draft.visual_graph, draft.id,
+                        ),
                     )
                     if cursor.rowcount == 0:
                         raise KeyError(draft.id)
@@ -130,5 +152,6 @@ class WorkflowRepository:
         return WorkflowDraft(
             id=row["id"], name=row["name"], description=row["description"],
             draft_source=row["draft_source"], dependencies=dependencies,
+            editor_mode=row["editor_mode"], visual_graph=row["visual_graph"],
             created_at=row["created_at"], updated_at=row["updated_at"],
         )

@@ -37,6 +37,17 @@ def create_workflow_router(service: WorkflowService | None = None) -> APIRouter:
     def workflow_template():
         return {"draft_source": DEFAULT_WORKFLOW_SOURCE}
 
+    @router.get("/visual-template")
+    def visual_workflow_template():
+        return {"visual_graph": workflow_service.visual_template()}
+
+    @router.post("/compile-visual")
+    def compile_visual_workflow(payload: dict):
+        try:
+            return workflow_service.compile_visual(payload.get("visual_graph"))
+        except ValueError as exc:
+            raise handle(exc)
+
     @router.post("/validate")
     def validate_workflow(payload: dict):
         try:

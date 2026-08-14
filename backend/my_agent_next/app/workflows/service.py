@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import re
+import json
 import sqlite3
 
 from .contract import WORKFLOW_IDENTIFIER_PATTERN
 from .model import WorkflowDraft, WorkflowDraftDependency
 from .repository import WorkflowRepository
 from .source_validation import DEFAULT_SOURCE_POLICY, validate_workflow_source
+from .visual import compile_visual_graph, empty_visual_graph, visual_graph_json
 
 
 DEFAULT_WORKFLOW_SOURCE = '''from typing import TypedDict
@@ -70,6 +72,17 @@ class WorkflowService:
             "imports": list(result.imports),
         }
 
+    def visual_template(self) -> dict:
+        return empty_visual_graph()
+
+    def compile_visual(self, graph: object) -> dict:
+        normalized, source = compile_visual_graph(graph)
+        return {
+            "visual_graph": normalized,
+            "draft_source": source,
+            "validation": self.validate(source),
+        }
+
     def create(self, payload: dict) -> dict:
         draft = self._parse(payload)
         if self.repository.get(draft.id) is not None:
@@ -104,7 +117,17 @@ class WorkflowService:
         workflow_id = str(payload.get("id", "")).strip()
         name = str(payload.get("name", "")).strip()
         description = str(payload.get("description", "")).strip()
+        editor_mode = str(payload.get("editor_mode", "code")).strip()
+        if editor_mode not in {"code", "visual"}:
+            raise ValueError("editor_mode 必须是 code 或 visual。")
         source = payload.get("draft_source", "")
+        visual_graph = ""
+        if editor_mode == "visual":
+            normalized_graph, source = compile_visual_graph(payload.get("visual_graph"))
+            visual_graph = visual_graph_json(normalized_graph)
+        elif isinstance(payload.get("visual_graph"), dict):
+            normalized_graph, _ = compile_visual_graph(payload.get("visual_graph"))
+            visual_graph = visual_graph_json(normalized_graph)
         if not WORKFLOW_IDENTIFIER_PATTERN.fullmatch(workflow_id):
             raise ValueError("工作流 ID 必须以小写字母开头，只能包含小写字母、数字、下划线或连字符，长度为 2-64。")
         if not name or len(name) > 100:
@@ -135,12 +158,17 @@ class WorkflowService:
                 raise ValueError(f"依赖的工作流不存在：{target}")
             seen.add(key)
             dependencies.append(WorkflowDraftDependency(key, target))
-        return WorkflowDraft(workflow_id, name, description, source, tuple(dependencies))
+        return WorkflowDraft(
+            workflow_id, name, description, source, tuple(dependencies),
+            editor_mode=editor_mode, visual_graph=visual_graph,
+        )
 
     def _serialize(self, draft: WorkflowDraft) -> dict:
         return {
             "id": draft.id, "name": draft.name, "description": draft.description,
             "draft_source": draft.draft_source,
+            "editor_mode": draft.editor_mode,
+            "visual_graph": json.loads(draft.visual_graph) if draft.visual_graph else None,
             "dependencies": [{"key": item.key, "target_workflow_id": item.target_workflow_id} for item in draft.dependencies],
             "created_at": draft.created_at, "updated_at": draft.updated_at,
             "validation": self.validate(draft.draft_source),

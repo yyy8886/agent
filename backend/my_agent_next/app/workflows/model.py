@@ -18,5 +18,7 @@ class WorkflowDraft:
     description: str
     draft_source: str
     dependencies: tuple[WorkflowDraftDependency, ...] = field(default_factory=tuple)
+    editor_mode: str = "code"
+    visual_graph: str = ""
     created_at: str | None = None
     updated_at: str | None = None

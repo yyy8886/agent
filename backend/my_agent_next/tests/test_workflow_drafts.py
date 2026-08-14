@@ -50,6 +50,92 @@ class WorkflowDraftTests(unittest.TestCase):
                 "id": "parent-flow", "name": "Parent", "draft_source": "",
                 "dependencies": [{"key": "missing", "target_workflow_id": "missing-flow"}],
             })
+
+    def test_saves_visual_graph_without_replacing_code_workflows(self):
+        code = self.service.create({
+            "id": "code-flow", "name": "Code",
+            "draft_source": "def build_workflow():\n    return None\n",
+        })
+        self.assertEqual(code["editor_mode"], "code")
+        self.assertIsNone(code["visual_graph"])
+
+        visual_graph = {
+            "version": 1,
+            "nodes": [
+                {"id": "start", "type": "start", "label": "开始", "position": {"x": 0, "y": 0}},
+                {
+                    "id": "ask_mabel", "type": "agent", "label": "梅贝尔",
+                    "position": {"x": 240, "y": 0},
+                    "config": {
+                        "agent_id": "mabel", "message": "处理 {message}",
+                        "output": "answer",
+                    },
+                },
+                {"id": "finish", "type": "end", "label": "结束", "position": {"x": 480, "y": 0}},
+            ],
+            "edges": [
+                {"source": "start", "target": "ask_mabel"},
+                {"source": "ask_mabel", "target": "finish"},
+            ],
+        }
+        visual = self.service.create({
+            "id": "visual-flow", "name": "Visual", "editor_mode": "visual",
+            "visual_graph": visual_graph,
+        })
+        self.assertEqual(visual["editor_mode"], "visual")
+        self.assertEqual(visual["visual_graph"]["nodes"][1]["id"], "ask_mabel")
+        self.assertIn("flow.agent", visual["draft_source"])
+        self.assertTrue(visual["validation"]["valid"], visual["validation"])
+
+    def test_visual_condition_requires_named_branches(self):
+        graph = self.service.visual_template()
+        graph["nodes"].insert(1, {
+            "id": "answer", "type": "agent", "label": "回答",
+            "config": {"agent_id": "mabel", "message": "{message}", "output": "answer"},
+        })
+        graph["nodes"].insert(2, {
+            "id": "decision", "type": "condition", "label": "判断",
+            "config": {"field": "approved", "operator": "truthy"},
+        })
+        graph["edges"] = [
+            {"source": "start", "target": "answer"},
+            {"source": "answer", "target": "decision"},
+            {"source": "decision", "target": "finish"},
+        ]
+        with self.assertRaisesRegex(ValueError, "是.*否"):
+            self.service.compile_visual(graph)
+
+    def test_visual_condition_compiles_to_native_branch(self):
+        graph = {
+            "nodes": [
+                {"id": "start", "type": "start"},
+                {"id": "classify", "type": "agent", "config": {
+                    "agent_id": "mabel", "message": "判断 {message}", "output": "approved",
+                }},
+                {"id": "decision", "type": "condition", "config": {
+                    "field": "approved", "operator": "equals", "value": "yes",
+                }},
+                {"id": "accept", "type": "agent", "config": {
+                    "agent_id": "mabel", "message": "通过 {message}", "output": "answer",
+                }},
+                {"id": "reject", "type": "agent", "config": {
+                    "agent_id": "analysis", "message": "拒绝 {message}", "output": "answer",
+                }},
+                {"id": "finish_yes", "type": "end"},
+                {"id": "finish_no", "type": "end"},
+            ],
+            "edges": [
+                {"source": "start", "target": "classify"},
+                {"source": "classify", "target": "decision"},
+                {"source": "decision", "target": "accept", "branch": "then"},
+                {"source": "decision", "target": "reject", "branch": "otherwise"},
+                {"source": "accept", "target": "finish_yes"},
+                {"source": "reject", "target": "finish_no"},
+            ],
+        }
+        compiled = self.service.compile_visual(graph)
+        self.assertTrue(compiled["validation"]["valid"], compiled["validation"])
+        self.assertIn("flow.if_", compiled["draft_source"])
         with self.assertRaisesRegex(ValueError, "不能依赖自身"):
             self.service.create({
                 "id": "self-flow", "name": "Self", "draft_source": "",

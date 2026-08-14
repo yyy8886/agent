@@ -268,6 +268,42 @@ index.html — My Agent Next 管理中心
   .ws-wf-controls select { min-width:0; flex:1; }
   .workflow-modal { width:min(1040px, calc(100vw - 32px)); max-width:none; max-height:calc(100vh - 32px); overflow:auto; }
   .workflow-editor { min-height:360px !important; font-family:Consolas, "Courier New", monospace; line-height:1.5; tab-size:4; white-space:pre; }
+  .workflow-mode-switch { display:inline-flex; padding:3px; gap:3px; margin-bottom:12px; border:1px solid var(--border); border-radius:var(--radius-sm); background:#0c0e14; }
+  .workflow-mode-switch button { border:0; background:transparent; color:var(--text-dim); padding:7px 12px; border-radius:4px; cursor:pointer; font-size:.78rem; }
+  .workflow-mode-switch button.active { background:var(--accent); color:#fff; }
+  .visual-workflow-toolbar { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:8px; }
+  .visual-workflow-toolbar .spacer { flex:1; }
+  .visual-workflow-shell { display:grid; grid-template-columns:minmax(0,1fr) 250px; height:480px; border:1px solid var(--border); border-radius:var(--radius-sm); overflow:hidden; background:#0b0d13; }
+  .visual-workflow-viewport { position:relative; overflow:auto; background-color:#0c0f16; background-image:radial-gradient(#292e3c 1px,transparent 1px); background-size:20px 20px; }
+  .visual-workflow-canvas { position:relative; width:1400px; height:900px; min-width:100%; min-height:100%; }
+  .visual-workflow-edges { position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none; }
+  .visual-workflow-edges path { fill:none; stroke:#687086; stroke-width:2; pointer-events:stroke; cursor:pointer; }
+  .visual-workflow-edges path:hover,.visual-workflow-edges path.selected { stroke:var(--accent); stroke-width:3; }
+  .visual-edge-label { fill:var(--text-dim); font:11px sans-serif; paint-order:stroke; stroke:#0c0f16; stroke-width:4px; }
+  .visual-node { position:absolute; width:170px; min-height:72px; padding:10px 12px; border:1px solid #343a49; border-left:3px solid #6b7280; border-radius:6px; background:#151922; box-shadow:0 5px 14px rgba(0,0,0,.24); cursor:grab; user-select:none; z-index:2; }
+  .visual-node.selected { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); }
+  .visual-node[data-type="agent"] { border-left-color:#4f8cff; }
+  .visual-node[data-type="skill"] { border-left-color:#39b77a; }
+  .visual-node[data-type="condition"] { border-left-color:#e3a62f; }
+  .visual-node[data-type="tool"] { border-left-color:#ad7be9; }
+  .visual-node[data-type="workflow"] { border-left-color:#e66b8c; }
+  .visual-node[data-type="start"],.visual-node[data-type="end"] { width:116px; min-height:54px; border-left-color:#8b93a6; }
+  .visual-node-type { color:var(--text-dim); font-size:.65rem; text-transform:uppercase; }
+  .visual-node-title { margin-top:4px; color:var(--text); font-size:.82rem; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .visual-node-detail { margin-top:5px; color:var(--text-dim); font-size:.68rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .visual-port { position:absolute; top:50%; width:15px; height:15px; margin-top:-7px; border:2px solid #98a1b5; border-radius:50%; background:#11141c; opacity:0; transition:opacity .12s,background .12s; cursor:crosshair; z-index:4; }
+  .visual-node:hover .visual-port,.visual-port.connecting { opacity:.72; }
+  .visual-port:hover { opacity:1 !important; background:var(--accent); border-color:#fff; }
+  .visual-port.input { left:-9px; }
+  .visual-port.output { right:-9px; }
+  .visual-inspector { overflow:auto; padding:12px; border-left:1px solid var(--border); background:#11141c; }
+  .visual-inspector h3 { margin:0 0 12px; font-size:.86rem; }
+  .visual-inspector .form-group { margin-bottom:10px; }
+  .visual-inspector label { font-size:.68rem; }
+  .visual-inspector input,.visual-inspector select,.visual-inspector textarea { font-size:.75rem; padding:7px 8px; }
+  .visual-inspector textarea { min-height:86px; }
+  .visual-empty-inspector { color:var(--text-dim); font-size:.75rem; line-height:1.6; }
+  @media(max-width:800px){.visual-workflow-shell{grid-template-columns:1fr;height:620px}.visual-inspector{border-left:0;border-top:1px solid var(--border);max-height:230px}}
   .workflow-dependency-row { display:grid; grid-template-columns:minmax(120px, 1fr) minmax(180px, 1.4fr) 34px; gap:8px; margin-bottom:8px; }
   .workflow-validation { margin-top:10px; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-dim); font-size:.78rem; max-height:130px; overflow:auto; }
   .workflow-validation.valid { border-color:var(--success); color:var(--success); }
@@ -589,7 +625,17 @@ index.html — My Agent Next 管理中心
     <p>把工作流理解成一条处理流水线：每个节点做一件事，做完后把结果交给下一个节点。</p>
     <div class="workflow-help-flow">用户输入 → 梅贝尔提取参数 → 天气 Skill 查询 → 诺登整理回答</div>
 
-    <h3>第一步：决定每个节点做什么</h3>
+    <h3>优先使用可视化画布</h3>
+    <ol>
+      <li>点击“＋ Agent”“＋ Skill”或“＋ 条件”加入模块。</li>
+      <li>鼠标移到节点上，从右侧半透明圆点拖到下一个节点完成连接；也可以先点击圆点，再点击目标节点。</li>
+      <li>点击节点，在右侧配置 Agent、任务模板、Skill 参数和输出字段。</li>
+      <li>系统会按执行层级自动排列。手动拖动节点只会保存位置微调，点击“自动排列”可以恢复整齐布局。</li>
+      <li>条件节点的前两条出线会分别标记为“是”和“否”；箭头可以连回前面的节点形成循环，运行仍受递归上限和停止按钮保护。</li>
+    </ol>
+    <p class="workflow-help-note">可视化画布和高级代码分别保存。画布由后端确定性生成 Workflow SDK 源码，再编译成原生 LangGraph；它不是交给模型解释的提示词。</p>
+
+    <h3>高级代码：第一步决定每个节点做什么</h3>
     <ol>
       <li><strong>节点</strong>就是一个 Python 函数，例如“调用梅贝尔”。</li>
       <li><strong>State</strong>是节点共用的数据袋，里面放用户输入、中间结果和最终回答。</li>
@@ -747,12 +793,36 @@ graph.add_conditional_edges(
         <div class="form-group"><label>名称</label><input id="workflowFormName" required maxlength="100" placeholder="例如 客服处理"></div>
       </div>
       <div class="form-group"><label>说明</label><input id="workflowFormDescription" maxlength="1000" placeholder="这个工作流解决什么问题"></div>
+      <div class="workflow-mode-switch" role="tablist">
+        <button type="button" id="workflowModeVisual" onclick="setWorkflowEditorMode('visual')">可视化</button>
+        <button type="button" id="workflowModeCode" onclick="setWorkflowEditorMode('code')">高级代码</button>
+      </div>
       <div class="form-group">
         <label>子工作流依赖</label>
         <div id="workflowDependencies"></div>
         <button type="button" class="btn btn-ghost btn-sm" onclick="addWorkflowDependency()">＋ 添加依赖</button>
       </div>
-      <div class="form-group"><label>LangGraph 源码</label><textarea id="workflowFormSource" class="workflow-editor" spellcheck="false"></textarea></div>
+      <div id="workflowVisualPanel">
+        <div class="visual-workflow-toolbar">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="addVisualNode('agent')">＋ Agent</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="addVisualNode('skill')">＋ Skill</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="addVisualNode('condition')">＋ 条件</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="addVisualNode('tool')">＋ Tool</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="addVisualNode('workflow')">＋ 子工作流</button>
+          <span class="spacer"></span>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="autoLayoutVisualGraph(true)">自动排列</button>
+        </div>
+        <div class="visual-workflow-shell">
+          <div class="visual-workflow-viewport" id="visualWorkflowViewport">
+            <div class="visual-workflow-canvas" id="visualWorkflowCanvas">
+              <svg class="visual-workflow-edges" id="visualWorkflowEdges" aria-hidden="true"></svg>
+              <div id="visualWorkflowNodes"></div>
+            </div>
+          </div>
+          <aside class="visual-inspector" id="visualWorkflowInspector"></aside>
+        </div>
+      </div>
+      <div id="workflowCodePanel" class="form-group"><label>LangGraph 源码</label><textarea id="workflowFormSource" class="workflow-editor" spellcheck="false"></textarea></div>
       <div id="workflowValidation" class="workflow-validation">尚未验证</div>
       <div class="form-actions" style="justify-content:space-between">
         <button type="button" class="btn btn-danger" id="workflowDeleteButton" onclick="deleteWorkflowDraft()" style="display:none">删除草稿</button>
@@ -1528,6 +1598,188 @@ $("#modalWorkflowHelp").addEventListener("click", event => {
   if (event.target === $("#modalWorkflowHelp")) closeWorkflowHelp();
 });
 
+let workflowEditorMode = "visual";
+let workflowVisualEnabled = false;
+let visualGraph = {version:1,nodes:[],edges:[]};
+let visualSelectedNodeId = "";
+let visualSelectedEdgeId = "";
+let visualConnection = null;
+
+function setWorkflowEditorMode(mode) {
+  workflowEditorMode = mode === "code" ? "code" : "visual";
+  if (workflowEditorMode === "visual") workflowVisualEnabled = true;
+  $("#workflowModeVisual").classList.toggle("active", workflowEditorMode === "visual");
+  $("#workflowModeCode").classList.toggle("active", workflowEditorMode === "code");
+  $("#workflowVisualPanel").style.display = workflowEditorMode === "visual" ? "" : "none";
+  $("#workflowCodePanel").style.display = workflowEditorMode === "code" ? "" : "none";
+  if (workflowEditorMode === "visual") renderVisualGraph();
+}
+window.setWorkflowEditorMode = setWorkflowEditorMode;
+
+function visualNodeTypeLabel(type) {
+  return {start:"开始",end:"结束",agent:"Agent",skill:"Skill",condition:"条件",tool:"Tool",workflow:"子工作流"}[type] || type;
+}
+
+function visualNodeDetail(node) {
+  const c = node.config || {};
+  if (node.type === "agent") return c.agent_id || "选择 Agent";
+  if (node.type === "skill") return c.skill_name || "选择 Skill";
+  if (node.type === "condition") return `${c.field || "字段"} · ${c.operator || "truthy"}`;
+  if (node.type === "tool") return c.tool_name || "填写 Tool";
+  if (node.type === "workflow") return c.dependency || "选择依赖";
+  return "";
+}
+
+function renderVisualGraph() {
+  if (!$("#visualWorkflowNodes")) return;
+  const container = $("#visualWorkflowNodes");
+  container.innerHTML = visualGraph.nodes.map(node => {
+    const p = node.position || {x:0,y:0};
+    const canInput = node.type !== "start";
+    const canOutput = node.type !== "end";
+    return `<div class="visual-node${node.id===visualSelectedNodeId?" selected":""}" data-node-id="${esc(node.id)}" data-type="${esc(node.type)}" style="left:${Number(p.x)||0}px;top:${Number(p.y)||0}px">
+      ${canInput?'<span class="visual-port input" title="连接到这里"></span>':""}
+      ${canOutput?'<span class="visual-port output" title="拖动或点击连接下一个模块"></span>':""}
+      <div class="visual-node-type">${esc(visualNodeTypeLabel(node.type))}</div>
+      <div class="visual-node-title">${esc(node.label || node.id)}</div>
+      <div class="visual-node-detail">${esc(visualNodeDetail(node))}</div>
+    </div>`;
+  }).join("");
+  container.querySelectorAll(".visual-node").forEach(element => {
+    const nodeId = element.dataset.nodeId;
+    element.addEventListener("pointerdown", event => beginVisualNodeDrag(event, nodeId));
+    element.addEventListener("click", event => {
+      if (event.target.classList.contains("visual-port")) return;
+      if (visualConnection) finishVisualConnection(nodeId);
+      else selectVisualNode(nodeId);
+    });
+    const output = element.querySelector(".visual-port.output");
+    if (output) output.addEventListener("pointerdown", event => beginVisualConnection(event, nodeId));
+    const input = element.querySelector(".visual-port.input");
+    if (input) input.addEventListener("pointerup", event => { event.stopPropagation(); finishVisualConnection(nodeId); });
+  });
+  renderVisualEdges();
+  renderVisualInspector();
+}
+
+function renderVisualEdges(pointer = null) {
+  const svg = $("#visualWorkflowEdges");
+  if (!svg) return;
+  const nodes = Object.fromEntries(visualGraph.nodes.map(node => [node.id,node]));
+  let html = '<defs><marker id="visualArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#687086"></path></marker></defs>';
+  visualGraph.edges.forEach(edge => {
+    const source = nodes[edge.source], target = nodes[edge.target];
+    if (!source || !target) return;
+    const sw = source.type === "start" || source.type === "end" ? 116 : 170;
+    const tw = target.type === "start" || target.type === "end" ? 116 : 170;
+    const x1 = (source.position?.x||0) + sw, y1 = (source.position?.y||0) + 36;
+    const x2 = (target.position?.x||0), y2 = (target.position?.y||0) + 36;
+    const bend = Math.max(55,Math.abs(x2-x1)*.45);
+    const d = `M ${x1} ${y1} C ${x1+bend} ${y1}, ${x2-bend} ${y2}, ${x2} ${y2}`;
+    html += `<path data-edge-id="${esc(edge.id)}" class="${edge.id===visualSelectedEdgeId?"selected":""}" d="${d}" marker-end="url(#visualArrow)"></path>`;
+    if (edge.branch) html += `<text class="visual-edge-label" x="${(x1+x2)/2}" y="${(y1+y2)/2-7}">${edge.branch==="then"?"是":"否"}</text>`;
+  });
+  if (visualConnection && pointer) {
+    const source = nodes[visualConnection.source];
+    const sw = source.type === "start" ? 116 : 170;
+    const x1=(source.position?.x||0)+sw,y1=(source.position?.y||0)+36;
+    html += `<path d="M ${x1} ${y1} L ${pointer.x} ${pointer.y}" stroke-dasharray="5 5"></path>`;
+  }
+  svg.innerHTML = html;
+  svg.querySelectorAll("path[data-edge-id]").forEach(path => path.addEventListener("click", event => {
+    event.stopPropagation(); visualSelectedEdgeId=path.dataset.edgeId; visualSelectedNodeId=""; renderVisualGraph();
+  }));
+}
+
+function selectVisualNode(nodeId) {
+  visualSelectedNodeId=nodeId; visualSelectedEdgeId=""; renderVisualGraph();
+}
+
+function beginVisualNodeDrag(event,nodeId) {
+  if (event.target.classList.contains("visual-port") || event.button !== 0) return;
+  const node=visualGraph.nodes.find(item=>item.id===nodeId); if(!node)return;
+  const element=event.currentTarget, startX=event.clientX, startY=event.clientY;
+  const origin={x:node.position?.x||0,y:node.position?.y||0};
+  let moved=false;
+  element.setPointerCapture(event.pointerId);
+  const move=e=>{const dx=e.clientX-startX,dy=e.clientY-startY;if(Math.abs(dx)+Math.abs(dy)>4)moved=true;node.position={x:Math.round(origin.x+dx),y:Math.round(origin.y+dy)};element.style.left=node.position.x+"px";element.style.top=node.position.y+"px";renderVisualEdges();};
+  const end=()=>{element.removeEventListener("pointermove",move);element.removeEventListener("pointerup",end);if(moved)node.manual_position=true;};
+  element.addEventListener("pointermove",move); element.addEventListener("pointerup",end);
+}
+
+function beginVisualConnection(event,source) {
+  event.stopPropagation(); event.preventDefault();
+  visualConnection={source};
+  event.currentTarget.classList.add("connecting");
+  const viewport=$("#visualWorkflowViewport"), canvas=$("#visualWorkflowCanvas");
+  const move=e=>{const rect=canvas.getBoundingClientRect();renderVisualEdges({x:e.clientX-rect.left,y:e.clientY-rect.top});};
+  const end=e=>{document.removeEventListener("pointermove",move);document.removeEventListener("pointerup",end);const target=e.target.closest?.(".visual-node")?.dataset.nodeId;if(target)finishVisualConnection(target);else{visualConnection=null;renderVisualGraph();}};
+  document.addEventListener("pointermove",move); document.addEventListener("pointerup",end);
+}
+
+function finishVisualConnection(target) {
+  if(!visualConnection)return;
+  const source=visualConnection.source; visualConnection=null;
+  if(source===target)return renderVisualGraph();
+  const sourceNode=visualGraph.nodes.find(n=>n.id===source),targetNode=visualGraph.nodes.find(n=>n.id===target);
+  if(!sourceNode||!targetNode||sourceNode.type==="end"||targetNode.type==="start")return renderVisualGraph();
+  if(visualGraph.edges.some(edge=>edge.source===source&&edge.target===target))return renderVisualGraph();
+  const outgoing=visualGraph.edges.filter(edge=>edge.source===source);
+  let branch="";
+  if(sourceNode.type==="condition"){
+    branch=outgoing.some(edge=>edge.branch==="then")?"otherwise":"then";
+    if(outgoing.length>=2){toast("条件节点只能有“是”和“否”两个出口","error");return renderVisualGraph();}
+  }else if(outgoing.length){toast("普通节点只能连接一个下游，请添加条件节点","error");return renderVisualGraph();}
+  visualGraph.edges.push({id:`edge_${Date.now()}`,source,target,branch});
+  autoLayoutVisualGraph(false); selectVisualNode(target);
+}
+
+function nextVisualNodeId(type){let i=1,id=type;const ids=new Set(visualGraph.nodes.map(n=>n.id));while(ids.has(id))id=`${type}_${++i}`;return id;}
+function addVisualNode(type) {
+  const id=nextVisualNodeId(type); let config={};
+  if(type==="agent")config={agent_id:agents[0]?.id||"mabel",message:"处理用户请求：{message}",output:"answer"};
+  if(type==="skill")config={skill_name:allSkills[0]?.name||"",arguments:{message:"{message}"},output:`${id}_result`};
+  if(type==="condition")config={field:"answer",operator:"truthy",value:""};
+  if(type==="tool")config={tool_name:"",arguments:{message:"{message}"},output:`${id}_result`};
+  if(type==="workflow")config={dependency:"",inputs:{message:"{message}"},output:`${id}_result`};
+  visualGraph.nodes.push({id,type,label:visualNodeTypeLabel(type),position:{x:300,y:260},manual_position:false,config});
+  if(visualSelectedNodeId){visualConnection={source:visualSelectedNodeId};finishVisualConnection(id);}else{autoLayoutVisualGraph(false);selectVisualNode(id);}
+}
+window.addVisualNode=addVisualNode;
+
+function autoLayoutVisualGraph(force=false) {
+  const outgoing={}; visualGraph.nodes.forEach(n=>outgoing[n.id]=[]); visualGraph.edges.forEach(e=>outgoing[e.source]?.push(e.target));
+  const start=visualGraph.nodes.find(n=>n.type==="start"); const depth={}; if(start)depth[start.id]=0;
+  const queue=start?[start.id]:[];
+  while(queue.length){const current=queue.shift();for(const next of outgoing[current]||[]){const proposed=(depth[current]||0)+1;if(depth[next]===undefined||proposed<depth[next]){depth[next]=proposed;queue.push(next);}}}
+  let fallback=Math.max(0,...Object.values(depth))+1; visualGraph.nodes.forEach(n=>{if(depth[n.id]===undefined)depth[n.id]=fallback++;});
+  const columns={}; visualGraph.nodes.forEach(n=>(columns[depth[n.id]]??=[]).push(n));
+  Object.entries(columns).forEach(([level,nodes])=>nodes.forEach((node,index)=>{if(force||!node.manual_position){node.position={x:60+Number(level)*230,y:70+index*125};if(force)node.manual_position=false;}}));
+  renderVisualGraph();
+}
+window.autoLayoutVisualGraph=autoLayoutVisualGraph;
+
+function renderVisualInspector() {
+  const panel=$("#visualWorkflowInspector"); if(!panel)return;
+  const node=visualGraph.nodes.find(item=>item.id===visualSelectedNodeId);
+  if(!node){panel.innerHTML=visualSelectedEdgeId?`<h3>连线</h3><button type="button" class="btn btn-danger btn-sm" onclick="deleteSelectedVisualItem()">删除连线</button>`:'<div class="visual-empty-inspector">选择节点后在这里配置。<br><br>拖动节点可以微调位置；从右侧圆点拖到另一个节点即可连接。</div>';return;}
+  const c=node.config||{};
+  let fields=`<div class="form-group"><label>节点名称</label><input value="${esc(node.label)}" onchange="updateVisualNodeField('label',this.value)"></div>`;
+  if(node.type==="agent")fields+=`<div class="form-group"><label>Agent</label><select onchange="updateVisualConfig('agent_id',this.value)">${agents.map(a=>`<option value="${esc(a.id)}" ${a.id===c.agent_id?"selected":""}>${esc(a.name)}</option>`).join("")}</select></div><div class="form-group"><label>任务模板</label><textarea onchange="updateVisualConfig('message',this.value)">${esc(c.message||"")}</textarea></div><div class="form-group"><label>输出字段</label><input value="${esc(c.output||"")}" onchange="updateVisualConfig('output',this.value)"></div>`;
+  if(node.type==="skill")fields+=`<div class="form-group"><label>Skill</label><select onchange="updateVisualConfig('skill_name',this.value)"><option value="">选择 Skill</option>${allSkills.map(s=>`<option value="${esc(s.name)}" ${s.name===c.skill_name?"selected":""}>${esc(s.display_name||s.name)}</option>`).join("")}</select></div>${visualJsonFields(c,"arguments","参数 JSON")}<div class="form-group"><label>输出字段</label><input value="${esc(c.output||"")}" onchange="updateVisualConfig('output',this.value)"></div>`;
+  if(node.type==="condition")fields+=`<div class="form-group"><label>上下文字段</label><input value="${esc(c.field||"")}" onchange="updateVisualConfig('field',this.value)"></div><div class="form-group"><label>判断</label><select onchange="updateVisualConfig('operator',this.value)">${[["truthy","有值/为真"],["equals","等于"],["not_equals","不等于"],["contains","包含"]].map(([v,l])=>`<option value="${v}" ${v===c.operator?"selected":""}>${l}</option>`).join("")}</select></div><div class="form-group"><label>比较值</label><input value="${esc(c.value??"")}" onchange="updateVisualConfig('value',this.value)"></div>`;
+  if(node.type==="tool")fields+=`<div class="form-group"><label>Tool 名称</label><input value="${esc(c.tool_name||"")}" onchange="updateVisualConfig('tool_name',this.value)"></div>${visualJsonFields(c,"arguments","参数 JSON")}<div class="form-group"><label>输出字段</label><input value="${esc(c.output||"")}" onchange="updateVisualConfig('output',this.value)"></div>`;
+  if(node.type==="workflow")fields+=`<div class="form-group"><label>依赖键</label><input value="${esc(c.dependency||"")}" onchange="updateVisualConfig('dependency',this.value)"></div>${visualJsonFields(c,"inputs","输入 JSON")}<div class="form-group"><label>输出字段</label><input value="${esc(c.output||"")}" onchange="updateVisualConfig('output',this.value)"></div>`;
+  const removable=!['start','end'].includes(node.type);
+  panel.innerHTML=`<h3>${esc(visualNodeTypeLabel(node.type))} 配置</h3>${fields}${removable?'<button type="button" class="btn btn-danger btn-sm" onclick="deleteSelectedVisualItem()">删除节点</button>':""}`;
+}
+function visualJsonFields(config,key,label){return `<div class="form-group"><label>${label}</label><textarea onchange="updateVisualJsonConfig('${key}',this.value)">${esc(JSON.stringify(config[key]||{},null,2))}</textarea></div>`;}
+function updateVisualNodeField(key,value){const n=visualGraph.nodes.find(n=>n.id===visualSelectedNodeId);if(n){n[key]=value;renderVisualGraph();}}
+function updateVisualConfig(key,value){const n=visualGraph.nodes.find(n=>n.id===visualSelectedNodeId);if(n){n.config??={};n.config[key]=value;renderVisualGraph();}}
+function updateVisualJsonConfig(key,value){try{const parsed=JSON.parse(value);updateVisualConfig(key,parsed);}catch(error){toast("JSON 格式错误："+error.message,"error");}}
+function deleteSelectedVisualItem(){if(visualSelectedEdgeId){visualGraph.edges=visualGraph.edges.filter(e=>e.id!==visualSelectedEdgeId);visualSelectedEdgeId="";}else if(visualSelectedNodeId){visualGraph.nodes=visualGraph.nodes.filter(n=>n.id!==visualSelectedNodeId);visualGraph.edges=visualGraph.edges.filter(e=>e.source!==visualSelectedNodeId&&e.target!==visualSelectedNodeId);visualSelectedNodeId="";}autoLayoutVisualGraph(false);}
+window.updateVisualNodeField=updateVisualNodeField;window.updateVisualConfig=updateVisualConfig;window.updateVisualJsonConfig=updateVisualJsonConfig;window.deleteSelectedVisualItem=deleteSelectedVisualItem;
+
 async function openWorkflowModal(workflowId = "") {
   $("#workflowForm").reset();
   $("#workflowDependencies").innerHTML = "";
@@ -1546,12 +1798,18 @@ async function openWorkflowModal(workflowId = "") {
       $("#workflowFormName").value = item.name;
       $("#workflowFormDescription").value = item.description;
       $("#workflowFormSource").value = item.draft_source;
+      workflowVisualEnabled = Boolean(item.visual_graph);
+      visualGraph = item.visual_graph || (await (await fetch("/api/workflows/visual-template")).json()).visual_graph;
+      setWorkflowEditorMode(item.editor_mode || "code");
       item.dependencies.forEach(dependency => addWorkflowDependency(dependency));
       renderWorkflowValidation(item.validation);
     } else {
-      const response = await fetch("/api/workflows/template");
-      if (!response.ok) throw new Error("模板加载失败");
-      $("#workflowFormSource").value = (await response.json()).draft_source;
+      const [codeResponse,visualResponse] = await Promise.all([fetch("/api/workflows/template"),fetch("/api/workflows/visual-template")]);
+      if (!codeResponse.ok || !visualResponse.ok) throw new Error("模板加载失败");
+      $("#workflowFormSource").value = (await codeResponse.json()).draft_source;
+      visualGraph = (await visualResponse.json()).visual_graph;
+      workflowVisualEnabled = true;
+      setWorkflowEditorMode("visual");
     }
     $("#modalWorkflow").classList.remove("hidden");
   } catch (error) { toast(error.message, "error"); }
@@ -1588,6 +1846,8 @@ function workflowPayload() {
     name: $("#workflowFormName").value.trim(),
     description: $("#workflowFormDescription").value.trim(),
     draft_source: $("#workflowFormSource").value,
+    editor_mode: workflowEditorMode,
+    visual_graph: workflowVisualEnabled && visualGraph?.nodes?.length ? visualGraph : null,
     dependencies: [...document.querySelectorAll(".workflow-dependency-row")].map(row => ({
       key: row.querySelector(".workflow-dependency-key").value.trim(),
       target_workflow_id: row.querySelector(".workflow-dependency-target").value,
@@ -1611,13 +1871,15 @@ function renderWorkflowValidation(validation) {
 
 async function validateWorkflowDraft() {
   try {
-    const response = await fetch("/api/workflows/validate", {
+    const isVisual=workflowEditorMode==="visual";
+    const response = await fetch(isVisual?"/api/workflows/compile-visual":"/api/workflows/validate", {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({draft_source:$("#workflowFormSource").value}),
+      body:JSON.stringify(isVisual?{visual_graph:visualGraph}:{draft_source:$("#workflowFormSource").value}),
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.detail || "验证失败");
-    renderWorkflowValidation(result);
+    if(isVisual&&result.draft_source)$("#workflowFormSource").value=result.draft_source;
+    renderWorkflowValidation(isVisual?result.validation:result);
   } catch (error) { toast(error.message, "error"); }
 }
 window.validateWorkflowDraft = validateWorkflowDraft;

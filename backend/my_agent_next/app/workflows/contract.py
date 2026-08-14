@@ -29,6 +29,7 @@ PUBLIC_WORKFLOW_SDK_SYMBOLS = frozenset(
         "WorkflowCancelledError",
         "WorkflowContractError",
         "WorkflowPayload",
+        "Workflow",
         "WorkflowRunInfo",
         "WorkflowRuntime",
         "normalize_workflow_payload",

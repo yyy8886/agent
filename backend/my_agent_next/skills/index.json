@@ -16,8 +16,8 @@
     {
       "directory": "imagegen",
       "name": "imagegen",
-      "description": "Generate or edit raster images when the task benefits from AI-created bitmap visuals such as photos, illustrations, textures, sprites, mockups, or transparent-background cutouts. Use when Codex should create a brand-new image, transform an existing image, or derive visual variants from references, and the output should be a bitmap asset rather than repo-native code or vector. Do not use when the task is better handled by editing existing SVG/vector/code-native assets, extending an established icon or logo system, or building the visual directly in HTML/CSS/canvas.",
-      "sha256": "613f892ba9259cbfcb44ee74e81587cc7ce288de86ae2f1eab5eacb190e34f58"
+      "description": "Generate or edit raster images when the task benefits from AI-created bitmap visuals such as photos, illustrations, textures, sprites, mockups, or transparent-background cutouts. Use when this application needs a new bitmap image, a transformed image, or image variants from references. Do not use when an existing SVG/vector icon set, logo system, or code-native asset is the better fit.",
+      "sha256": "9078154c41945a2087ec418b6494c62ce5dbad827fa8a8887baf1e9267db7760"
     },
     {
       "directory": "openai-docs",

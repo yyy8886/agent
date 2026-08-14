@@ -71,6 +71,21 @@ class SkillSafetyContractTests(unittest.TestCase):
         self.assertEqual(installer._default_dest(), expected)
         self.assertEqual(listing._project_skills_dir(), expected)
 
+    def test_imagegen_uses_its_project_local_chroma_key_helper(self):
+        text = self.read("imagegen")
+        self.assertIn("scripts/remove_chroma_key.py", text)
+        self.assertNotIn("$CODEX_HOME/skills/.system/imagegen", text)
+
+    def test_imagegen_references_use_project_local_paths(self):
+        imagegen = SKILLS / "imagegen"
+        text = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in imagegen.rglob("*.md")
+        )
+        self.assertIn("references/network.md", text)
+        self.assertNotIn("$CODEX_HOME", text)
+        self.assertNotIn("~/.codex", text)
+
     def test_review_tool_allowlist_is_enforced(self):
         allowed = _tool_names_for_skills(["review-agent"])
         self.assertEqual(allowed, {"read_file", "grep", "glob"})

@@ -37,6 +37,11 @@ class SkillIndexTests(unittest.TestCase):
                     "name": "miao-qids",
                     "display_name": "MiaoQIDS",
                     "description": "Miao QIDS tools",
+                    "compatibility": {
+                        "status": "missing",
+                        "level": None,
+                        "summary": "Skill 文件缺失",
+                    },
                 }],
             )
 

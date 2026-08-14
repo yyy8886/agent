@@ -323,6 +323,9 @@ def install_skill(payload: dict):
     skill_dir.mkdir(parents=True, exist_ok=True)
     (skill_dir / "SKILL.md").write_text(content, encoding="utf-8")
 
+    from .skill_compatibility import scan_skill
+    compatibility = scan_skill(name, trigger="install")
+
     # 5. 列出最终文件
     installed_files = [
         str(p.relative_to(skill_dir))
@@ -336,7 +339,24 @@ def install_skill(payload: dict):
         "source": source,
         "files": installed_files,
         "extra_files_downloaded": extra_files,
+        "compatibility": compatibility,
     }
+
+
+@router.post("/skills/{name}/compatibility/scan")
+def rescan_skill_compatibility(name: str):
+    """Rebuild the index and statically rescan one installed Skill."""
+    from my_agent_next.skills._loader import rebuild_index
+    from .skill_compatibility import scan_skill
+
+    skill_dir = SKILLS_DIR / name
+    if not skill_dir.is_dir() or not (skill_dir / "SKILL.md").is_file():
+        raise HTTPException(404, f"Skill「{name}」不存在")
+    rebuild_index()
+    try:
+        return scan_skill(name, trigger="manual")
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(409, str(exc))
 
 
 # ── 卸载 Skill ─────────────────────────────────────────────────────────────

@@ -149,11 +149,23 @@ def get(name: str) -> SkillInfo | None:
 
 def available_skill_choices() -> list[dict]:
     """Read lightweight metadata directly from the persistent index."""
+    from my_agent_next.app.skill_compatibility import compatibility_status, scan_skill
+
+    def compatibility(directory: str) -> dict:
+        status = compatibility_status(directory)
+        if status["status"] == "unscanned":
+            try:
+                return scan_skill(directory, trigger="discovery")
+            except (OSError, ValueError, RuntimeError):
+                return status
+        return status
+
     return [
         {
             "name": item["directory"],
             "display_name": item["name"],
             "description": item["description"],
+            "compatibility": compatibility(item["directory"]),
         }
         for item in ensure_index()["skills"]
     ]

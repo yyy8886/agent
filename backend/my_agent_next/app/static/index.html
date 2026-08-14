@@ -325,6 +325,19 @@ index.html — My Agent Next 管理中心
   .tool-log-item .tl-name { color: var(--warning); flex-shrink: 0; font-weight: 600; }
   .tool-log-item .tl-skill { color: var(--accent); flex-shrink: 0; }
   .tool-log-item .tl-detail { color: var(--text-dim); word-break: break-all; min-width: 0; }
+  .skill-compat { display:inline-flex;align-items:center;gap:5px;font-size:.72rem;font-weight:700; }
+  .skill-compat::before { content:"";width:8px;height:8px;border-radius:50%;background:#778; }
+  .skill-compat.green::before { background:var(--success); }
+  .skill-compat.yellow::before { background:var(--warning); }
+  .skill-compat.red::before { background:var(--danger); }
+  .skill-card-tools { display:flex;align-items:center;gap:8px;margin-left:auto; }
+  .skill-icon-btn { border:0;background:transparent;color:var(--text-dim);cursor:pointer;font-size:1rem;padding:3px 5px; }
+  .skill-icon-btn:hover { color:var(--accent); }
+  .skill-description.collapsed { display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden; }
+  .skill-details { display:none;border-top:1px solid var(--border);margin-top:10px;padding-top:10px;font-size:.76rem;line-height:1.55;color:var(--text-dim); }
+  .skill-card.expanded .skill-details { display:block; }
+  .skill-card.expanded .skill-description { display:block; }
+  .compat-issue { margin-top:6px;padding:6px 8px;border-radius:6px;background:rgba(255,255,255,.025); }
 
   @media (max-width: 500px) {
     body { padding: 14px; }
@@ -1123,17 +1136,34 @@ async function loadInstalledSkills() {
     empty.style.display = "none";
     list.innerHTML = skills.map(s => {
       const isProtected = ["review-agent","skill-creator","skill-installer","user-memory"].includes(s.name);
+      const c = s.compatibility || {};
+      const labels = {green:"完全兼容", yellow:"部分兼容", red:"很难兼容"};
+      const statusLabel = c.status === "stale" ? "内容已修改，待重扫" : c.status === "unscanned" ? "尚未扫描" : c.status === "missing" ? "文件缺失" : (labels[c.level] || "待扫描");
+      const expanded = localStorage.getItem(`skillExpanded:${s.name}`) === "1";
+      const issues = (c.issues || []).map(i => `<div class="compat-issue"><b>${esc(i.message)}</b><br>${esc(i.suggestion || "")}</div>`).join("");
       const badge = isProtected
         ? '<span class="badge" style="background:var(--warning);color:#000;margin-left:6px">系统</span>'
         : '';
-      return `<div class="card">
+      return `<div class="card skill-card ${expanded ? "expanded" : ""}" id="skill-card-${esc(s.name)}">
         <div class="card-header">
           <div>
             <div class="card-title">${esc(s.display_name || s.name)}${badge}</div>
           </div>
+          <div class="skill-card-tools">
+            <span class="skill-compat ${esc(c.level || "")}">${esc(statusLabel)}</span>
+            <button class="skill-icon-btn" title="重新扫描兼容性" onclick="event.stopPropagation();rescanSkillCompatibility('${esc(s.name)}')">↻</button>
+            <button class="skill-icon-btn" title="展开或折叠" onclick="event.stopPropagation();toggleInstalledSkill('${esc(s.name)}')">⌄</button>
+          </div>
         </div>
         <div class="card-body">
-          <p style="line-height:1.5">${esc(s.description || "暂无描述")}</p>
+          <p class="skill-description ${expanded ? "" : "collapsed"}" style="line-height:1.5">${esc(s.description || "暂无描述")}</p>
+          <div class="skill-details">
+            <div><b>扫描结论：</b>${esc(c.summary || "尚未生成兼容报告")}</div>
+            ${c.score !== undefined ? `<div><b>兼容分数：</b>${esc(c.score)}/100</div>` : ""}
+            <div><b>安全提示：</b>${esc(c.safety_level || "未评估")}</div>
+            ${c.scanned_at ? `<div><b>扫描时间：</b>${esc(c.scanned_at)}</div>` : ""}
+            ${issues || '<div style="margin-top:6px">未发现具体兼容问题。</div>'}
+          </div>
         </div>
         <div class="card-actions">
           <button class="btn btn-ghost btn-sm" onclick="mpPreviewLocal('${esc(s.name)}')">预览</button>
@@ -1146,6 +1176,29 @@ async function loadInstalledSkills() {
   } catch (e) {}
 }
 window.loadInstalledSkills = loadInstalledSkills;
+
+function toggleInstalledSkill(name) {
+  const card = document.getElementById(`skill-card-${name}`);
+  if (!card) return;
+  card.classList.toggle("expanded");
+  localStorage.setItem(`skillExpanded:${name}`, card.classList.contains("expanded") ? "1" : "0");
+  const description = card.querySelector(".skill-description");
+  if (description) description.classList.toggle("collapsed", !card.classList.contains("expanded"));
+}
+window.toggleInstalledSkill = toggleInstalledSkill;
+
+async function rescanSkillCompatibility(name) {
+  const card = document.getElementById(`skill-card-${name}`);
+  const status = card?.querySelector(".skill-compat");
+  if (status) status.textContent = "扫描中…";
+  try {
+    const res = await fetch(`/api/marketplace/skills/${name}/compatibility/scan`, {method:"POST"});
+    if (!res.ok) throw new Error((await res.json()).detail || "扫描失败");
+    await loadInstalledSkills();
+    toast(`已重新扫描 ${name}`, "success");
+  } catch (e) { toast("兼容性扫描失败: " + e.message, "error"); }
+}
+window.rescanSkillCompatibility = rescanSkillCompatibility;
 
 function mpPreviewLocal(name) {
   // 本地 Skill 预览：打开新窗口展示 SKILL.md

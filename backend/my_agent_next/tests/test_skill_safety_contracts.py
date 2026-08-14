@@ -26,6 +26,19 @@ class SkillSafetyContractTests(unittest.TestCase):
         self.assertIn("Never modify this `skill-creator` Skill", text)
         self.assertIn("Do not patch the dependency", text)
 
+    def test_creator_defaults_to_application_skill_directory(self):
+        text = self.read("skill-creator")
+        self.assertIn("default destination", text)
+        self.assertIn("`skills/<skill-name>/`", text)
+        self.assertIn("never default to\n`$CODEX_HOME/skills`", text)
+        self.assertIn("not from the process working directory", text)
+
+    def test_creator_is_written_for_the_application_not_global_codex(self):
+        text = self.read("skill-creator")
+        self.assertIn("extend this application", text)
+        self.assertNotIn("Mabel", text)
+        self.assertNotIn("extend Codex's capabilities", text)
+
     def test_installer_stops_when_official_sources_fail(self):
         text = self.read("skill-installer")
         self.assertIn("If every direct official source fails, stop", text)

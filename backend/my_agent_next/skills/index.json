@@ -40,8 +40,8 @@
     {
       "directory": "skill-creator",
       "name": "skill-creator",
-      "description": "Guide for creating effective skills. This skill should be used when users want to create a new skill (or update an existing skill) that extends Codex's capabilities with specialized knowledge, workflows, or tool integrations.",
-      "sha256": "f613ee9fdecd19a4b392d2fa730d1860a2118d073719cdc517cec062cdaf5990"
+      "description": "Create or update Skills for this application. Use when users want to add a specialized workflow, domain knowledge, bundled script, reference, or tool integration.",
+      "sha256": "840b922755224f31a4d33cac04062bd5fdb97153dc3d5b75e6de35f85b99e5bd"
     },
     {
       "directory": "skill-installer",
@@ -50,10 +50,22 @@
       "sha256": "2cd3d02237d4238a2e27d0aa63a2a557374b0a9859fc5490c227f6c1fe88c8fe"
     },
     {
+      "directory": "system-time",
+      "name": "system-time",
+      "description": "Use when the user asks for the current system time, date, timezone, or wants to query the local clock. Returns the current date and time in the local timezone, optionally with timezone info and a 24-hour format. Best suited for quick time/date lookups on the host machine.",
+      "sha256": "0b8b6320658203a2f47b978722ae774909fdd9aa7f9f5ff94387c11c046620af"
+    },
+    {
       "directory": "user-memory",
       "name": "user-memory",
       "description": "自动提取和记住用户信息（名字、偏好、习惯等）",
       "sha256": "4c23062012d2db071eb902cba467ff0cc1023d2e1ab3c33623ca0dff145d365b"
+    },
+    {
+      "directory": "weather",
+      "name": "weather",
+      "description": "查询指定城市的实时天气、温度、湿度、风速和未来预报。当用户询问天气、气温、是否下雨、穿衣建议等时使用。需要联网获取实时数据。",
+      "sha256": "b5e99dc4144aae867aa73802e8a7148b4b0663b9b5e4c32c6b76edc397bd37f4"
     }
   ]
 }

@@ -1,8 +1,12 @@
 """Check available models on the OpenAI proxy."""
-import urllib.request, json, os, sys
+import json
+import urllib.request
+from pathlib import Path
 
-os.chdir(r'c:/Users/yanzichen/Desktop/agent/backend/my_agent_next')
-with open('.env', encoding='utf-8') as f:
+
+PROJECT_DIR = Path(__file__).resolve().parent / "my_agent_next"
+
+with (PROJECT_DIR / ".env").open(encoding="utf-8") as f:
     for line in f:
         if line.startswith('OPENAI_API_KEY='):
             api_key = line.strip().split('=', 1)[1]

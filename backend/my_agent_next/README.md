@@ -1,161 +1,190 @@
-# my_agent_next
+# My Agent Next
 
-这是 AI 桌面助手的新版本后端。项目采用“先做一个能运行的小功能，验收后再增加下一层”的方式开发。
+`My Agent Next` 是一个可本地运行的多 Agent 应用后端。当前稳定版本已经打通“模型配置 -> Agent -> Skill -> Tool -> 记忆 -> 对话 -> LangGraph 工作流”的完整链路，并提供浏览器工作台进行配置和运行。
 
-当前已经具备：
+## 当前能力
 
-- OpenAI、DeepSeek、Ollama 和 OpenAI 兼容代理的 API 配置管理
-- API 管理页面与真实模型测速
-- Agent 创建、编辑、删除、人设配置、模型绑定与 Skill 绑定
-- 单 Agent 多轮聊天、会话管理和 SQLite 历史记录
-- 长对话压缩摘要和用户长期记忆
-- LangChain Tool Calling 与模型—工具循环
-- 文件、搜索、网页、命令执行和向用户提问等 Tool
-- 手动确认与自动执行两种工具权限模式
-- `SKILL.md` 加载及 `scripts/`、`references/` 资源提示
-- SkillsMP、ClawHub 和 GitHub Skill 搜索、查看、安装与卸载接口
-- draw.io Skill 及其脚本资源
+- 管理 OpenAI、DeepSeek、Ollama 和 OpenAI 兼容服务，支持真实模型测速。
+- 创建 Agent，配置人设、模型和绑定的 Skill。
+- Agent 多轮对话、原生流式输出、工具调用轨迹、会话恢复和手动停止。
+- SQLite 持久化 API 配置、Agent、对话、消息、用户记忆和 Skill 兼容性结果。
+- 创建、安装、卸载和自动绑定 Skill；通过 `skills/index.json` 保存轻量索引。
+- 从 SkillsMP、ClawHub 和 GitHub 预览、安装 Skill，并以绿、黄、红显示兼容程度。
+- 手动修改 `SKILL.md` 后，根据 SHA-256 内容指纹自动刷新索引和兼容性状态。
+- 在 Windows 和 Linux 上按当前运行平台选择命令与 Skill 脚本入口。
+- 直接保存并执行用户编写的 LangGraph Python 工作流。
+- 工作流支持条件边、回边循环、Agent、Tool、Skill、子工作流和自定义运行事件。
+- 工作流在独立 Worker 进程中运行，支持超时、递归限制、软取消和强制终止。
+- 工作流对话及最终回答持久化，刷新页面后可以继续查看。
 
-当前尚未完成：
-
-- LangGraph 多 Agent 工作流
-- 完整的 Skill 渐进加载、系统/用户目录分离和安全脚本执行器
-- LlamaIndex 知识库
-- Electron 桌宠前端
-- 跨平台打包和发布
+尚未完成的方向包括低权限或容器级 Worker 隔离、工作流版本发布与回滚、运行轨迹持久化、可视化工作流编辑器、LlamaIndex 知识库和 Electron 桌面端。
 
 ## 技术栈
 
 | 技术 | 用途 |
 | --- | --- |
-| Python 3.11/3.12 | 后端语言 |
-| FastAPI + Uvicorn | HTTP 接口、页面服务和 SSE 聊天接口 |
-| HTML + CSS + JavaScript | 当前 Web 管理台和聊天页面 |
-| LangChain | 消息、模型统一接口、Tool Calling |
-| OpenAI / DeepSeek / Ollama | 可切换的模型提供方 |
-| SQLite | API、Agent、会话、消息和用户记忆持久化 |
-| YAML | 服务和聊天参数配置 |
-| python-dotenv | 从 `.env` 读取真实 API Key |
+| Python 3.11 / 3.12 | 后端与 Worker 运行环境 |
+| FastAPI + Uvicorn | HTTP API、静态页面和 SSE |
+| HTML + CSS + JavaScript | Web 工作台 |
+| LangChain | 模型接口、消息和 Tool Calling |
+| LangGraph | 代码优先工作流、条件和循环 |
+| SQLite | 应用持久化数据 |
 | httpx | 网页读取和 Skill 市场请求 |
-| draw.io Desktop CLI | `.drawio` 生成、检查和导出 |
+| YAML | 应用配置及 Skill 执行清单 |
 
-项目依赖中还保留了 MCP 与 LangGraph 相关库，但当前 `my_agent_next` 的主要聊天流程是用 Python 循环编排，尚未迁移为 LangGraph。
-
-## 分层结构
+## 分层和运行边界
 
 ```text
-浏览器页面
-    ↓ HTTP / SSE
-FastAPI 接口层
-    ↓
-Service 业务层
-    ↓
-Repository 数据层
-    ↓
-SQLite
+浏览器工作台
+    | HTTP / SSE
+FastAPI API
+    | Service
+Repository --------> SQLite
+    |
+工作流运行管理器 ---> 独立 Worker ---> LangGraph / Agent / Tool / Skill
 ```
 
-- 接口层接收请求和返回响应。
-- Service 决定业务应该怎样执行。
-- Repository 只负责从 SQLite 读取和保存数据。
-- 页面只处理显示和用户操作，不直接访问数据库。
+- API 层处理请求、响应和 SSE 连接。
+- Service 负责业务编排，Repository 负责 SQLite 读写。
+- 普通 Agent 对话在聊天服务中执行，Agent 和工作流共用上下文装配逻辑。
+- 用户工作流源码不会在 FastAPI 进程中执行，而是生成不可变运行产物后由独立 Worker 导入运行。
+- `WorkflowRuntime` 是工作流访问 Agent、Tool、Skill 和已声明子工作流的唯一公开入口。
 
-## 当前目录
+## 目录结构
 
 ```text
 my_agent_next/
-├─ app/
-│  ├─ api_profile*.py          # 模型 API 配置领域、业务与存储
-│  ├─ agent_profile*.py        # Agent 配置领域、业务与存储
-│  ├─ chat_api.py              # 会话和 SSE 聊天接口
-│  ├─ chat_service.py          # 消息组装、模型调用和工具循环
-│  ├─ chat_repository.py       # 会话与消息存储
-│  ├─ user_memory*.py          # 用户长期记忆
-│  ├─ marketplace_api.py       # Skill 市场搜索、安装与卸载
-│  ├─ tools/                   # 模型可调用的 Tool
-│  ├─ static/index.html        # 当前 Web 控制台
-│  └─ web_server.py            # FastAPI 应用入口
-├─ skills/
-│  ├─ _loader.py               # 解析本地 SKILL.md
-│  ├─ user-memory/             # 项目自有记忆 Skill
-│  └─ ...                      # 内置或用户安装的其他 Skill
-├─ data/app.db                 # SQLite 数据库
-├─ scripts/                    # 项目维护脚本
-├─ tests/                      # 自动测试
-└─ config.yaml                 # 服务和聊天参数
+|- app/
+|  |- workflows/                 # 工作流契约、存储、产物、Worker 和运行管理
+|  |- tools/                     # Agent 和工作流可调用的 Tool
+|  |- static/index.html          # Web 工作台
+|  |- *_repository.py            # SQLite Repository
+|  |- *_service.py               # 业务服务
+|  `- web_server.py              # FastAPI 入口
+|- skills/
+|  |- index.json                 # Skill 轻量持久化索引
+|  |- _loader.py                 # Skill 发现、指纹校验和按需加载
+|  `- <skill-name>/              # SKILL.md、scripts、references 等资源
+|- data/app.db                   # 默认 SQLite 数据库
+|- tests/                        # 自动测试
+|- workflow_sdk.py               # 用户工作流允许导入的稳定接口
+`- config.yaml                   # 服务和聊天参数
 ```
 
-## 一次聊天如何运行
+所有项目资源路径均根据包或配置文件位置解析，不依赖当前工作目录，也不写死开发机器的绝对路径。
+
+## Agent 对话流程
 
 ```text
 用户发送消息
-→ FastAPI 接收
-→ 找到 Agent 和绑定模型
-→ 组装人设、Skill、长期记忆、摘要和最近历史
-→ LangChain 调用模型
-→ 模型需要信息时提出 Tool Call
-→ 权限层确认是否允许
-→ 执行 Tool，把 ToolMessage 交还模型
-→ 模型继续思考，直到输出最终回答
-→ SSE 将结果发送给页面
-→ SQLite 保存消息并按需要压缩历史、提取记忆
+-> 读取 Agent、人设、模型、绑定 Skill、记忆和历史
+-> 模型原生流式生成
+-> 如有 Tool Call，执行权限检查并调用 Tool
+-> Tool 结果交还模型继续生成
+-> SSE 实时发送文本和调用轨迹
+-> 保存用户消息与最终回答
 ```
 
-当前所谓“流式输出”是模型完整返回后再分块发送，并非模型原生 token streaming。
+切换到市场或 API 配置页面不会销毁正在进行的 SSE 对话。工作台的停止按钮会取消当前 Agent 任务，最大工具循环次数由 `config.yaml` 控制。
 
-## Tool 与 Skill
+## Skill 机制
 
-```text
-模型 = 负责思考的大脑
-Skill = 告诉模型怎样完成专业任务的说明书
-Tool = 真正读取文件、访问网页或运行程序的手
+每个 Skill 是 `skills/<skill-name>/` 下的独立目录，`SKILL.md` 是内容真源。`skills/index.json` 只保存名称、描述、目录和 SHA-256 指纹，正文在需要时按 Agent 绑定关系加载，不会把所有 Skill 一次性加入模型上下文。
+
+Agent 创建 Skill 后，应用会将它写入项目 Skill 目录、刷新索引，并自动绑定给发起创建的 Agent。手动修改 Skill 后，加载器会根据指纹发现变化。市场安装和手动重新扫描会写入兼容性等级、分数、问题和扫描时间。
+
+可执行 Skill 可以用 `execution.yaml` 声明参数、超时，以及 Windows PowerShell 和 Linux/macOS Bash 入口。外部 Skill 和脚本属于不可信输入，执行仍需遵守应用权限设置。
+
+## LangGraph 工作流
+
+工作流编辑器保存的是可直接运行的 LangGraph Python 源码，不会把源码转换为自定义节点格式。保存前的 AST 静态验证只检查语法、入口、导入和明显危险调用；验证通过不等于安全沙箱。
+
+每个工作流必须提供无参数同步入口：
+
+```python
+def build_workflow():
+    return graph.compile()
 ```
 
-当前 Tool 包括文件读写、编辑、搜索、网页访问、`run_bash` 和向用户提问。所有模型目前绑定同一组 Tool；这是开发阶段实现，后续需要改成按 Agent 和 Skill 授予最小权限。
+界面输入至少包含：
 
-当前 Skill 会把完整 `SKILL.md` 注入模型，并列出附带的脚本和参考资料。下一步需要解决 Codex Skill 中 `<this-skill-dir>`、`python3`、Codex 专用 Tool 等兼容问题，并增加安全的 `run_skill_script`。
-
-## 配置与密钥
-
-`config.yaml` 保存普通运行参数，例如服务端口、上下文长度和 Agent 循环次数。
-
-SQLite 只保存 API Key 的环境变量名称：
-
-```text
-api_key_env = OPENAI_API_KEY
+```json
+{"message": "用户输入"}
 ```
 
-真正的 Key 放在 `backend/.env` 或未来的操作系统安全存储中：
+最终状态必须提供可显示的：
 
-```text
-OPENAI_API_KEY=真实密钥
+```json
+{"answer": "最终回答"}
 ```
 
-`.env` 必须加入 `.gitignore`，发布程序时也不能把开发者自己的 Key 打包进去。
+节点通过 `Runtime[WorkflowRuntime]` 调用应用能力：
+
+```python
+await runtime.context.call_agent("mabel", {"message": state["message"]})
+await runtime.context.call_tool("tool-name", {"value": "..."})
+await runtime.context.call_skill("weather-skill", {"city": "上海"})
+await runtime.context.call_workflow("declared_dependency", {"message": "..."})
+```
+
+子工作流必须先在编辑器中声明依赖键。发布产物会把依赖键固定到目标工作流版本，源码不能在运行时任意选择子工作流。原生 `add_conditional_edges()`、回边循环和节点内部的 `if`、`for`、`while` 均可使用，但循环必须有业务退出条件；应用的递归限制、总超时和停止按钮是最后保护。
+
+运行时通过 SSE 展示节点输入输出、Agent 调用、工具调用、Skill 调用、子工作流和最终结果。最终回答显示在上方，完整轨迹在结束后自动折叠。
+
+更完整的代码契约见 [app/workflows/README.md](app/workflows/README.md)，编辑器中也可以点击“工作流配置”旁的问号查看逐句示例。
+
+## 数据与密钥
+
+默认持久化文件为 `data/app.db`，主要保存：
+
+- `api_profiles`：模型供应商、模型名、Base URL、API Key 环境变量名和默认配置。
+- `agents`：Agent 人设、模型与 Skill 绑定。
+- `chat_threads`、`chat_messages`：Agent 和工作流对话。
+- `user_memories`：长期用户记忆。
+- `skill_compatibility`：Skill 兼容性扫描结果和内容指纹。
+
+数据库只保存 API Key 对应的环境变量名。真实密钥放在 `backend/.env` 或部署平台的密钥管理中：
+
+```dotenv
+OPENAI_API_KEY=your-key
+```
+
+不要提交 `.env`，也不要把开发者密钥打包进发布产物。
 
 ## 启动
 
-在 `backend` 目录激活虚拟环境后运行项目现有启动脚本：
+Windows PowerShell：
 
 ```powershell
-python run_server.py
+cd backend
+.\.venv\Scripts\Activate.ps1
+python -m my_agent_next.app.web_server
 ```
 
-实际端口以启动脚本或 `config.yaml` 使用的入口为准。不要同时启动多个入口，否则可能出现同一个端口被多个 Python 进程占用。
+Linux：
 
-## 当前风险与下一步
+```bash
+cd backend
+source .venv/bin/activate
+python -m my_agent_next.app.web_server
+```
 
-1. 先修正 Skill 路径和运行时兼容，使 `drawio-skill` 能稳定找到自身脚本。
-2. 增加只允许运行 Skill 自带脚本的 `run_skill_script`，减少通用 `run_bash` 风险。
-3. 建立 `skills/.system/` 和用户安装 Skill 的来源规则。
-4. 按 Agent 与 Skill 分配 Tool，不再默认绑定全部 Tool。
-5. 为市场安装增加临时目录、路径检查、权限展示和失败回滚。
-6. 再用 LangGraph 实现多 Agent 分析、分派、执行、验证和人工确认。
+默认地址为 `http://127.0.0.1:19845`，实际主机和端口以 `my_agent_next/config.yaml` 为准。不要同时启动多个服务器入口占用同一端口。
 
-## 开发纪律
+## 验证
 
-- 每次只完成一个可验收步骤。
-- 修改原文件前先产生副本或可恢复版本。
-- Tool 调用默认由用户确认，尤其是 Bash、网络、安装与删除操作。
-- 市场 Skill 和网页内容属于不可信输入，不能自动获得完整系统权限。
-- 每个阶段同时补充说明、测试和真实运行验收。
+在 `backend` 目录和项目虚拟环境中运行：
+
+```powershell
+python -m unittest discover -s my_agent_next/tests -p "test_*.py"
+```
+
+工作流相关测试覆盖源码契约、条件和循环、直接 Worker 执行、嵌套调用、事件、会话持久化、取消及强制终止。
+
+## 安全注意事项
+
+- Tool 调用默认需要用户确认，命令、网络、安装和删除操作尤其如此。
+- 市场 Skill、网页内容和用户工作流源码均视为不可信输入。
+- 静态检查不是执行隔离；正式对外部署前仍需给 Worker 增加低权限用户或容器沙箱。
+- 工作流必须通过公开 SDK 调用应用能力，不能直接访问 Repository、API Key 或宿主内部对象。
+- 为条件和循环设置明确停止条件，不要只依赖 LangGraph 递归上限。

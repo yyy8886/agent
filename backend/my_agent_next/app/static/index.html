@@ -672,7 +672,27 @@ def build_workflow():
     "weather_query",
     {"message": state["message"]},
     )</pre>
-    <p class="workflow-help-note">依赖键是当前工作流给子工作流起的简称，不是子工作流 ID。保存前点击“静态验证”可以查看语法、入口和导入问题。当前版本只能编辑和验证，执行 Worker 还未实现。</p>
+    <p class="workflow-help-note">依赖键是当前工作流给子工作流起的简称，不是子工作流 ID。保存前点击“静态验证”可以查看语法、入口和导入问题；保存后，源码会生成不可变 Python 运行产物，并由独立 Worker 直接导入和执行。</p>
+
+    <h3>第六步：输入、输出和运行过程</h3>
+    <ol>
+      <li>界面会把用户问题作为 <code>{"message": "..."}</code> 传入工作流。</li>
+      <li>最终 State 必须包含 <code>{"answer": "..."}</code>，应用才能把回答显示并保存到对话。</li>
+      <li>Agent、Tool、Skill 和子工作流都通过 <code>runtime.context</code> 调用；每次调用的输入、输出会进入运行过程。</li>
+      <li>工作流使用 LangGraph 原生 <code>astream()</code> 执行，节点输出会实时返回页面，最终回答出现后运行过程自动折叠。</li>
+    </ol>
+
+    <h3>条件、循环与停止</h3>
+    <p>可以直接使用 LangGraph 的 <code>add_conditional_edges()</code>、回边，也可以在节点函数中使用 Python 的 <code>if</code>、<code>for</code> 和 <code>while</code>。这些代码由 LangGraph 和 Python 原生执行，不会被应用改写。</p>
+    <pre>def choose_next(state: State) -> str:
+    return "retry" if state.get("attempts", 0) &lt; 3 else "finish"
+
+graph.add_conditional_edges(
+    "check",
+    choose_next,
+    {"retry": "query_again", "finish": END},
+)</pre>
+    <p class="workflow-help-note">循环必须写清楚退出条件。运行时同时受递归上限和总超时保护；点击工作台的“停止”会先请求协作取消，无法退出的代码会由运行管理器强制终止 Worker。</p>
 
     <h3>项目里的两个真实案例</h3>
     <div class="workflow-case">

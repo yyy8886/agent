@@ -18,6 +18,13 @@ class WorkflowUiTests(unittest.TestCase):
         self.assertNotIn("timeout_seconds:300", source)
         self.assertIn('max="1800"', source)
 
+    def test_agent_tokens_are_aggregated_per_agent_invocation(self):
+        source = INDEX_HTML.read_text(encoding="utf-8")
+        self.assertIn("const activeAgentStreams = new Map()", source)
+        self.assertIn('event.event === "agent_token"', source)
+        self.assertIn("stream.text += String(data.text", source)
+        self.assertIn('event.event === "agent_output" && finalizeAgentStream', source)
+
 
 if __name__ == "__main__":
     unittest.main()

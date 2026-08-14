@@ -394,6 +394,7 @@ index.html — My Agent Next 管理中心
   .workflow-trace-item .event-name { color:var(--accent); font-weight:700; margin-right:7px; }
   .workflow-trace-item.error .event-name { color:var(--danger); }
   .workflow-trace-item.output .event-name { color:var(--success); }
+  .workflow-trace-item .agent-stream-text { white-space:pre-wrap; }
   .skill-compat { display:inline-flex;align-items:center;gap:5px;font-size:.72rem;font-weight:700; }
   .skill-compat::before { content:"";width:8px;height:8px;border-radius:50%;background:#778; }
   .skill-compat.green::before { background:var(--success); }
@@ -2390,7 +2391,7 @@ window.workspaceSend = workspaceSend;
 
 const WORKFLOW_EVENT_LABELS = {
   workflow_started:"工作流开始", node_started:"节点开始", node_output:"节点输出",
-  node_finished:"节点完成", agent_started:"Agent 输入", agent_tool_call:"Agent 工具调用",
+  node_finished:"节点完成", agent_started:"Agent 输入", agent_token:"Agent 实时输出", agent_tool_call:"Agent 工具调用",
   agent_tool_result:"Agent 工具输出", agent_skill_loaded:"Agent 加载 Skill", agent_output:"Agent 输出", tool_started:"工具输入",
   tool_output:"工具输出", skill_started:"Skill 输入", skill_output:"Skill 输出",
   child_workflow_started:"子工作流开始", child_workflow_output:"子工作流输出",
@@ -2427,8 +2428,55 @@ async function workspaceRunWorkflow(content) {
   const traceCount = trace.querySelector(".trace-count");
   const answer = document.querySelector(`#${bubbleId} .ws-text`);
   let eventCount = 0;
+  const activeAgentStreams = new Map();
+
+  function agentStreamKey(event) {
+    const data = event.data || {};
+    return `${event.run_id || "root"}:${data.agent_id || "agent"}`;
+  }
+
+  function appendAgentToken(event) {
+    const data = event.data || {};
+    const key = agentStreamKey(event);
+    let stream = activeAgentStreams.get(key);
+    if (!stream) {
+      const item = document.createElement("div");
+      item.className = "workflow-trace-item agent-stream";
+      item.innerHTML = `<span class="event-name">${esc(WORKFLOW_EVENT_LABELS.agent_token)}</span><span class="agent-stream-text"></span>`;
+      traceBody.appendChild(item);
+      stream = {item, text:""};
+      activeAgentStreams.set(key, stream);
+      eventCount++;
+      traceCount.textContent = eventCount;
+    }
+    stream.text += String(data.text || "");
+    stream.item.querySelector(".agent-stream-text").textContent = stream.text;
+    $("#wsMessages").scrollTop = $("#wsMessages").scrollHeight;
+  }
+
+  function finalizeAgentStream(event) {
+    const key = agentStreamKey(event);
+    const stream = activeAgentStreams.get(key);
+    if (!stream) return false;
+    const output = event.data?.output || {};
+    const finalText = typeof output.answer === "string"
+      ? output.answer
+      : JSON.stringify(output);
+    stream.item.classList.add("output");
+    stream.item.querySelector(".event-name").textContent = WORKFLOW_EVENT_LABELS.agent_output;
+    stream.item.querySelector(".agent-stream-text").textContent = finalText;
+    activeAgentStreams.delete(key);
+    return true;
+  }
 
   function appendEvent(event) {
+    if (event.event === "agent_token") {
+      appendAgentToken(event);
+      return;
+    }
+    if (event.event === "agent_output" && finalizeAgentStream(event)) {
+      return;
+    }
     const item = document.createElement("div");
     const isError = ["run_error", "run_timeout", "run_cancelled"].includes(event.event);
     const isOutput = ["node_output", "agent_output", "skill_output", "tool_output", "child_workflow_output", "workflow_output", "run_output"].includes(event.event);

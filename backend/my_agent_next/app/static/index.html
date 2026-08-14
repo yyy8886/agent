@@ -449,8 +449,8 @@ index.html — My Agent Next 管理中心
       <div class="ws-sidebar">
         <div class="ws-sidebar-section" style="display:flex;align-items:center;gap:8px">
           <div style="flex:1">
-            <label>选择 Agent</label>
-            <select id="wsAgentSelect" onchange="workspaceOnAgentChange()"><option value="">-- 请选择 --</option></select>
+            <label>选择对话</label>
+            <select id="wsConversationSelect" onchange="workspaceOnConversationChange()"><option value="">-- 请选择 --</option></select>
           </div>
         </div>
         <div class="ws-sidebar-section" style="display:flex;align-items:center;gap:8px">
@@ -461,7 +461,7 @@ index.html — My Agent Next 管理中心
           </div>
         </div>
         <div class="ws-thread-list" id="wsThreadList">
-          <div class="ws-empty-threads">请先选择 Agent</div>
+          <div class="ws-empty-threads">请先选择 Agent 或工作流</div>
         </div>
         <div class="ws-wf-section">
           <div class="wf-title">工作流配置</div>
@@ -476,7 +476,7 @@ index.html — My Agent Next 管理中心
       <div class="ws-chat" id="wsChat">
         <div class="ws-placeholder" id="wsPlaceholder">
           <h3>💬 工作台</h3>
-          <p>选择 Agent 后开始对话</p>
+          <p>选择 Agent 或工作流</p>
         </div>
         <div class="ws-messages" id="wsMessages" style="display:none"></div>
         <div class="ws-input-area" id="wsInputArea" style="display:none">
@@ -1309,6 +1309,7 @@ async function loadWorkspaceWorkflows(preferredId) {
     ).join("");
     if (previous && _wsWorkflows.some(item => item.id === previous)) select.value = previous;
     workspaceWorkflowChanged();
+    if (_wsAgents.length) renderWorkspaceConversationChoices();
   } catch (error) {
     toast(error.message, "error");
   }
@@ -1451,41 +1452,67 @@ $("#modalWorkflow").addEventListener("click", event => { if (event.target === $(
 
 let _wsAgents = [];
 async function workspaceInit() {
-  // 加载 Agent 列表到下拉框
-  loadWorkspaceWorkflows();
+  await loadWorkspaceWorkflows();
   try {
     const res = await fetch("/api/agents");
     if (!res.ok) return;
     _wsAgents = await res.json();
-    const sel = $("#wsAgentSelect");
-    // 记住之前的选择：下拉框当前值优先，其次 localStorage 持久化的值
-    const prev = sel.value || localStorage.getItem("wsActiveAgentId") || "";
-    sel.innerHTML = '<option value="">-- 请选择 --</option>' +
-      _wsAgents.filter(a => a.enabled).map(a => `<option value="${esc(a.id)}">${esc(a.name)} (${esc(a.id)})</option>`).join("");
-    // 恢复之前的选择（若该 agent 仍启用且在列表中）
-    if (prev && _wsAgents.some(a => a.enabled && a.id === prev)) {
-      sel.value = prev;
-      workspaceOnAgentChange();
-    }
+    renderWorkspaceConversationChoices();
   } catch(e) {}
 }
 window.workspaceInit = workspaceInit;
 
-async function workspaceOnAgentChange() {
-  const agentId = $("#wsAgentSelect").value;
-  if (!agentId) {
-    localStorage.removeItem("wsActiveAgentId");
-    $("#wsThreadList").innerHTML = '<div class="ws-empty-threads">请先选择 Agent</div>';
+function workspaceSelection() {
+  const value = $("#wsConversationSelect").value;
+  const separator = value.indexOf(":");
+  return separator < 0 ? {type:"", id:""} : {type:value.slice(0, separator), id:value.slice(separator + 1)};
+}
+
+function renderWorkspaceConversationChoices() {
+  const select = $("#wsConversationSelect");
+  const legacyAgentId = localStorage.getItem("wsActiveAgentId");
+  const previous = select.value || localStorage.getItem("wsActiveConversation") || (legacyAgentId ? `agent:${legacyAgentId}` : "");
+  const agentOptions = _wsAgents.filter(agent => agent.enabled).map(
+    agent => `<option value="agent:${esc(agent.id)}">${esc(agent.name)} (${esc(agent.id)})</option>`
+  ).join("");
+  const workflowOptions = _wsWorkflows.map(
+    workflow => `<option value="workflow:${esc(workflow.id)}">${esc(workflow.name)} (${esc(workflow.id)})</option>`
+  ).join("");
+  select.innerHTML = '<option value="">-- 请选择 --</option>' +
+    (agentOptions ? `<optgroup label="Agent">${agentOptions}</optgroup>` : "") +
+    (workflowOptions ? `<optgroup label="工作流">${workflowOptions}</optgroup>` : "");
+  if ([...select.options].some(option => option.value === previous)) select.value = previous;
+  localStorage.removeItem("wsActiveAgentId");
+  workspaceOnConversationChange();
+}
+
+async function workspaceOnConversationChange() {
+  const selection = workspaceSelection();
+  wsThreads = [];
+  wsActiveThreadId = null;
+  if (!selection.id) {
+    localStorage.removeItem("wsActiveConversation");
+    $("#wsThreadList").innerHTML = '<div class="ws-empty-threads">请先选择 Agent 或工作流</div>';
     workspaceShowPlaceholder();
     return;
   }
-  localStorage.setItem("wsActiveAgentId", agentId);
-  // 加载该 Agent 的线程列表
+  localStorage.setItem("wsActiveConversation", `${selection.type}:${selection.id}`);
+  if (selection.type === "workflow") {
+    const workflow = _wsWorkflows.find(item => item.id === selection.id);
+    $("#wsThreadList").innerHTML = '<div class="ws-empty-threads">工作流执行记录将在执行器完成后显示</div>';
+    workspaceShowPlaceholder(false);
+    $("#wsPlaceholder h3").textContent = workflow?.name || "工作流";
+    $("#wsPlaceholder p").textContent = workflow?.validation?.valid
+      ? "草稿验证通过，执行 Worker 尚未实现"
+      : "草稿存在验证问题，请先在工作流配置中修正";
+    return;
+  }
+  $("#wsPlaceholder h3").textContent = "工作台";
+  $("#wsPlaceholder p").textContent = "选择对话后开始交流";
   try {
-    const res = await fetch(`/api/chat/threads?agent_id=${agentId}`);
+    const res = await fetch(`/api/chat/threads?agent_id=${selection.id}`);
     wsThreads = await res.json();
     workspaceRenderThreadList();
-    // 恢复该 agent 上次打开的线程（若存在且仍属于该 agent）
     const savedThread = localStorage.getItem("wsActiveThreadId");
     if (savedThread && wsThreads.some(t => t.id === savedThread)) {
       workspaceOpenThread(savedThread);
@@ -1494,7 +1521,7 @@ async function workspaceOnAgentChange() {
     }
   } catch(e) {}
 }
-window.workspaceOnAgentChange = workspaceOnAgentChange;
+window.workspaceOnConversationChange = workspaceOnConversationChange;
 
 function workspaceRenderThreadList() {
   const container = $("#wsThreadList");
@@ -1516,12 +1543,13 @@ function workspaceRenderThreadList() {
 }
 
 async function workspaceNewThread() {
-  const agentId = $("#wsAgentSelect").value;
-  if (!agentId) { toast("请先选择 Agent", "error"); return; }
+  const selection = workspaceSelection();
+  if (!selection.id) { toast("请先选择 Agent 或工作流", "error"); return; }
+  if (selection.type === "workflow") { toast("工作流执行 Worker 尚未实现，暂时不能新建工作流对话", "error"); return; }
   try {
     const res = await fetch("/api/chat/threads", {
       method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({agent_id: agentId, title: ""}),
+      body: JSON.stringify({agent_id: selection.id, title: ""}),
     });
     if (!res.ok) throw new Error((await res.json()).detail);
     const thread = await res.json();
@@ -1574,24 +1602,26 @@ async function workspaceLoadMessages(threadId) {
 }
 
 function workspaceMsgHTML(m) {
-  const label = m.role === "user" ? "用户" : (_wsAgents.find(a => a.id === ($("#wsAgentSelect").value))?.name || "AI");
+  const selection = workspaceSelection();
+  const label = m.role === "user" ? "用户" : (_wsAgents.find(a => a.id === selection.id)?.name || "AI");
   return `<div class="ws-msg ${m.role}">
     <div class="ws-msg-label">${label}</div>
     <div class="ws-msg-bubble">${esc(m.content)}</div>
   </div>`;
 }
 
-function workspaceShowPlaceholder() {
+function workspaceShowPlaceholder(clearSavedThread = true) {
   $("#wsPlaceholder").style.display = "flex";
   $("#wsMessages").style.display = "none";
   $("#wsMessages").innerHTML = "";
   $("#wsInputArea").style.display = "none";
   wsActiveThreadId = null;
-  localStorage.removeItem("wsActiveThreadId");
+  if (clearSavedThread) localStorage.removeItem("wsActiveThreadId");
 }
 
 async function workspaceSend() {
   if (wsStreaming) return;
+  if (workspaceSelection().type === "workflow") { toast("工作流执行 Worker 尚未实现", "error"); return; }
   const content = $("#wsInput").value.trim();
   if (!content) return;
   if (!wsActiveThreadId) { toast("请先选择或新建一个对话", "error"); return; }
@@ -1606,7 +1636,7 @@ async function workspaceSend() {
 
   // 不在 SSE 返回前创建气泡——等第一个 token 或 tool_call 到了再画
   const aiBubbleId = "ws-" + Date.now();
-  const agentName = _wsAgents.find(a => a.id === ($("#wsAgentSelect").value))?.name || "AI";
+  const agentName = _wsAgents.find(a => a.id === workspaceSelection().id)?.name || "AI";
   let bubbleCreated = false;
   let thinkingShown = false;
   let toolLogCount = 0;
@@ -1793,7 +1823,7 @@ async function workspaceSend() {
   $("#wsInput").focus();
 
   // 刷新线程列表（更新标题和时间）
-  workspaceOnAgentChange();
+  workspaceOnConversationChange();
 }
 window.workspaceSend = workspaceSend;
 

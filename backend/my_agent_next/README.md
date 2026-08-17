@@ -95,6 +95,72 @@ Agent 创建 Skill 后，应用会将它写入项目 Skill 目录、刷新索引
 
 可执行 Skill 可以用 `execution.yaml` 声明参数、超时，以及 Windows PowerShell 和 Linux/macOS Bash 入口。外部 Skill 和脚本属于不可信输入，执行仍需遵守应用权限设置。
 
+## MCP 服务（规划）
+
+工作台后续将在“Skill 市场”之后增加独立的“MCP 服务”页面。课程 L6 中通过
+`mcp dev lecture\L6\mcp_server.py:server` 打开的网页是 MCP Inspector；新页面参考它的
+连接、能力发现和手动调用体验，但不会直接嵌入 Inspector。Inspector 继续作为开发者的
+外部诊断工具，应用页面负责持久化配置、权限控制、Agent 绑定和运行轨迹。
+
+### 产品边界
+
+- Skill 是项目内的知识与工作流目录，`SKILL.md` 是内容真源；它告诉 Agent 应该怎样完成任务。
+- MCP Server 是独立进程或远程服务，通过标准协议提供 Tool、Resource 和 Prompt；它提供可以实际调用的外部能力。
+- Agent 可以同时绑定 Skill 和 MCP Server。两者并不冲突：Skill 可以指导 Agent 何时调用 MCP 工具，但绑定关系和权限必须分别管理。
+- 第一阶段只支持本地 `stdio`，待生命周期、权限和日志稳定后再加入 Streamable HTTP。
+
+### 页面结构
+
+“MCP 服务”主页使用紧凑列表展示每个 Server 的名称、传输方式、连接状态、能力数量、
+最近检查时间和已绑定 Agent。展开单个 Server 后提供以下标签页：
+
+| 标签页 | 作用 |
+| --- | --- |
+| 概览 | 查看启动命令或 URL、环境变量名、工作目录、协议版本和 Server 能力声明 |
+| Tools | 执行 `tools/list`，根据输入 schema 生成表单，手动发送 `tools/call` 并查看结构化结果 |
+| Resources | 查看资源 URI、MIME 类型并手动执行 `resources/read` |
+| Prompts | 查看参数 schema，执行 `prompts/get` 并预览生成的消息，但不自动发送给模型 |
+| 协议日志 | 按时间展示 initialize、list、call/read/get 的方向、耗时、结果和错误，可重试与复制脱敏报告 |
+| Agent 绑定 | 控制哪些 Agent 可以发现该 Server，以及允许使用哪些 Tool、Resource 和 Prompt |
+
+页面顶部提供“添加服务”和“重新检查”操作。新增本地服务时填写名称、Python/Node 命令、
+参数、工作目录和环境变量名；密钥只引用环境变量，不在页面、数据库或日志中显示真实值。
+连接测试必须依次完成：启动进程、`initialize`、能力列表读取、一次可选的手动调用、正常关闭。
+
+### 后端边界
+
+```text
+MCP 页面 / Agent / Workflow
+          |
+      MCP Service
+          |
+  MCP Connection Manager
+      |             |
+ local stdio   Streamable HTTP（后续）
+          |
+      MCP Server
+```
+
+- API 只处理配置请求、测试请求和流式事件，不直接维护 MCP 子进程。
+- MCP Service 负责校验配置、权限和调用策略。
+- Connection Manager 统一管理启动、握手、能力发现、超时、重连和关闭，避免每次 Tool Call 都创建无主子进程。
+- Agent 与工作流通过统一 MCP Gateway 调用能力，不直接访问连接对象；工作流后续增加显式 MCP 节点。
+- SQLite 计划保存 Server 配置、Agent 绑定和最近一次能力快照；实时连接、进程句柄和未脱敏调用内容不写入数据库。
+- MCP 工具转换为模型 Tool 时保留来源标识，例如 `mcp:<server-id>:<tool-name>`，避免与本地 Tool 重名，也便于前端展示调用来源。
+
+### 实施顺序
+
+1. 完成本地 stdio Server 的增删改查、连接检查和 Inspector 式 Tools/Resources/Prompts 手动测试。
+2. 加入 Agent 绑定与工具级权限，让普通对话和工作流 Agent 可以动态发现已授权 MCP 能力。
+3. 增加工作流 MCP 节点、SSE 轨迹、停止按钮联动、超时和子进程回收测试。
+4. 最后支持 Streamable HTTP，并补充 HTTPS、认证、限流、重连和多用户隔离；在这些安全能力完成前不允许公网暴露。
+
+第一阶段的验收标准是：用户能在页面添加 L6 的时间 Server，看到 `get_current_time` 的
+schema，手动调用成功并查看完整握手与调用轨迹；将该 MCP Server 绑定给指定 Agent 后，
+普通 Agent 对话能够发现并实际调用 `get_current_time`；工作流中的 Agent 节点也能发现并
+调用同一个 MCP 工具，且节点轨迹显示 MCP 来源、参数、结果和错误。停止对话、停止工作流
+或退出应用后均不得残留 MCP 子进程。
+
 ## LangGraph 工作流
 
 工作流编辑器保存的是可直接运行的 LangGraph Python 源码，不会把源码转换为自定义节点格式。保存前的 AST 静态验证只检查语法、入口、导入和明显危险调用；验证通过不等于安全沙箱。

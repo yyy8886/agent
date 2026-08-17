@@ -191,6 +191,28 @@ class WorkerGateway:
                 )
 
         async def execute_tool(name: str, arguments: dict, call_id: str) -> str:
+            if name in {"discover_skills", "load_skill"}:
+                from ..tools.skill_discovery import (
+                    discover_authorized_skills,
+                    load_authorized_skill,
+                )
+
+                authorized = list(agent.skills or [])
+                if name == "discover_skills":
+                    return discover_authorized_skills(
+                        str(arguments.get("query", "")), authorized
+                    )
+                loaded_name = str(arguments.get("name", ""))
+                output = load_authorized_skill(loaded_name, authorized)
+                if output.startswith("Skill loaded:"):
+                    self.emitter.emit(
+                        "agent_skill_loaded",
+                        {"agent_id": agent_id, "skill": loaded_name, "runtime": True},
+                        run_id=self.run_id,
+                        parent_run_id=self.parent_run_id,
+                    )
+                return output
+
             dangerous = name == "run_bash" and is_dangerous_command(
                 str(arguments.get("command", ""))
             )

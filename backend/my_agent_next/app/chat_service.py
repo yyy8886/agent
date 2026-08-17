@@ -99,6 +99,14 @@ def build_agent_context_messages(agent, user_content: str) -> tuple[list, list[s
             "以下仅表示该 Agent 有权使用；未加载正文的 Skill 不得声称已经执行。\n"
             f"{catalog}"
         )))
+        messages.append(SystemMessage(content=(
+            "## Runtime Skill discovery\n"
+            "The catalog above is authorization metadata, not loaded instructions. "
+            "If a new need appears after inspecting files, tool output, or errors, call "
+            "discover_skills with that need. Then call load_skill with an exact authorized "
+            "Skill name before applying its instructions. Never claim a Skill was used "
+            "until load_skill or an initially loaded Skill supplied its instructions."
+        )))
 
     selected_routes = SkillRouter().select(user_content, bound_skills)
     selected_skill_names = [route.name for route in selected_routes]
@@ -316,6 +324,26 @@ class ChatService:
             return "\n\n".join(sections)
 
         async def execute_tool(tool_name: str, tool_args: dict, call_id: str) -> str:
+            if tool_name in {"discover_skills", "load_skill"}:
+                from .tools.skill_discovery import (
+                    discover_authorized_skills,
+                    load_authorized_skill,
+                )
+
+                authorized = list(agent.skills or []) if agent else []
+                if tool_name == "discover_skills":
+                    return discover_authorized_skills(
+                        str(tool_args.get("query", "")), authorized
+                    )
+                loaded_name = str(tool_args.get("name", ""))
+                result = load_authorized_skill(loaded_name, authorized)
+                if result.startswith("Skill loaded:"):
+                    await emit("skill", {
+                        "name": loaded_name,
+                        "summary": "Loaded during the active Agent run",
+                    })
+                return result
+
             if tool_name == "ask_user_question":
                 questions_str = str(tool_args.get("questions_json", ""))
                 try:

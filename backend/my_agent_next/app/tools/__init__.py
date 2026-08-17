@@ -12,10 +12,11 @@ from .bash import run_bash
 from .web_fetch import web_fetch
 from .web_search import web_search
 from .ask_user import ask_user_question
+from .skill_discovery import discover_skills, load_skill
 
 ALL_TOOLS = [
     read_file, write_file, edit_file, glob, grep, run_bash,
-    web_fetch, web_search, ask_user_question,
+    web_fetch, web_search, ask_user_question, discover_skills, load_skill,
 ]
 
 # 工具名 → 工具的映射，用于执行时查找

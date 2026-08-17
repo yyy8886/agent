@@ -37,7 +37,16 @@
         ]
       }
     ],
-    "win": { "target": "nsis" },
-    "linux": { "target": "AppImage", "category": "Utility" }
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Utility"
+    }
+  },
+  "allowScripts": {
+    "electron@37.10.3": true,
+    "electron-winstaller@5.4.0": true
   }
 }

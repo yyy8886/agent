@@ -277,6 +277,12 @@ class ChatService:
         current_attachments = self.attachments.validate_for_thread(
             thread_id, attachment_ids or []
         )
+        # DeepSeek Chat is text-only; reject image payloads before the provider
+        # receives an unsupported ``image_url`` content block.
+        if current_attachments and getattr(profile, "provider", "") == "deepseek":
+            raise ValueError(
+                "当前 DeepSeek Chat 模型不支持图片输入，请切换到支持视觉的模型后重试。"
+            )
         messages = self.build_messages(
             agent_id, thread_id, user_content, current_attachments
         )

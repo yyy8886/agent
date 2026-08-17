@@ -17,16 +17,18 @@ import asyncio
 import json
 import uuid
 
-from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
 
 from .agent_profile_repository import AgentProfileRepository
 from .chat_repository import ChatRepository
 from .chat_service import ChatService, set_tool_decision, set_question_response
+from .attachment_service import AttachmentService, MAX_ATTACHMENTS_PER_MESSAGE
 
 router = APIRouter(prefix="/api/chat")
 repo = ChatRepository()
 service = ChatService(repo)
+attachments = AttachmentService(prune_orphans=True)
 _active_chat_tasks: dict[str, asyncio.Task] = {}
 
 # ── 线程 ────────────────────────────────────────────────────────────────────
@@ -49,9 +51,11 @@ def create_thread(payload: dict):
 
 @router.delete("/threads/{thread_id}")
 def delete_thread(thread_id: str):
+    attachment_files = attachments.for_thread(thread_id)
     ok = repo.delete_thread(thread_id)
     if not ok:
         raise HTTPException(404, "线程不存在。")
+    attachments.delete_files(attachment_files)
     return {"deleted": True}
 
 
@@ -61,9 +65,46 @@ def get_thread(thread_id: str):
     if not thread:
         raise HTTPException(404, "线程不存在。")
     thread["messages"] = [{
-        "id": m.id, "role": m.role, "content": m.content, "created_at": m.created_at
+        "id": m.id, "role": m.role, "content": m.content, "created_at": m.created_at,
+        "attachments": [item.public() for item in attachments.for_message(m.id)],
     } for m in repo.get_messages(thread_id)]
     return thread
+
+
+@router.post("/threads/{thread_id}/attachments")
+async def upload_attachments(thread_id: str, files: list[UploadFile] = File(...)):
+    if not repo.get_thread(thread_id):
+        raise HTTPException(404, "线程不存在。")
+    if not files or len(files) > MAX_ATTACHMENTS_PER_MESSAGE:
+        raise HTTPException(400, "每次请选择 1-6 张图片。")
+    saved = []
+    try:
+        for upload in files:
+            data = await upload.read()
+            saved.append(attachments.save_upload(thread_id, upload.filename or "image", data))
+    except ValueError as exc:
+        for item in saved:
+            attachments.delete_unbound(item.id, thread_id)
+        raise HTTPException(400, str(exc)) from exc
+    return [item.public() for item in saved]
+
+
+@router.get("/attachments/{attachment_id}/content")
+def attachment_content(attachment_id: str):
+    item = attachments.get(attachment_id)
+    if not item:
+        raise HTTPException(404, "附件不存在。")
+    path = attachments.path_for(item)
+    if not path.is_file():
+        raise HTTPException(404, "附件文件不存在。")
+    return FileResponse(path, media_type=item.mime_type)
+
+
+@router.delete("/threads/{thread_id}/attachments/{attachment_id}")
+def delete_attachment(thread_id: str, attachment_id: str):
+    if not attachments.delete_unbound(attachment_id, thread_id):
+        raise HTTPException(404, "附件不存在或已经发送。")
+    return {"deleted": True}
 
 
 # ── 对话（SSE 流式）─────────────────────────────────────────────────────────
@@ -71,8 +112,11 @@ def get_thread(thread_id: str):
 @router.post("/threads/{thread_id}/messages")
 async def send_message(thread_id: str, payload: dict, request: Request):
     content = str(payload.get("content", "")).strip()
-    if not content:
-        raise HTTPException(400, "消息不能为空。")
+    attachment_ids = payload.get("attachment_ids", [])
+    if not isinstance(attachment_ids, list) or not all(isinstance(x, str) for x in attachment_ids):
+        raise HTTPException(400, "attachment_ids 必须是字符串数组。")
+    if not content and not attachment_ids:
+        raise HTTPException(400, "消息或图片不能为空。")
 
     thread = repo.get_thread(thread_id)
     if not thread:
@@ -112,6 +156,7 @@ async def send_message(thread_id: str, payload: dict, request: Request):
                 thread["agent_id"], thread_id, content, profile,
                 permission_mode=permission_mode,
                 max_agent_iterations=max_agent_iterations,
+                attachment_ids=attachment_ids,
             ):
                 yield chunk
         except asyncio.CancelledError:

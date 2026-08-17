@@ -220,6 +220,7 @@ await runtime.context.call_workflow("declared_dependency", {"message": "..."})
 - `api_profiles`：模型供应商、模型名、Base URL、API Key 环境变量名和默认配置。
 - `agents`：Agent 人设、模型与 Skill 绑定。
 - `chat_threads`、`chat_messages`：Agent 和工作流对话。
+- `attachments`：聊天图片的相对路径、MIME、大小、SHA-256 与所属消息；图片文件保存在 `data/attachments/`，不把 Base64 写入 SQLite。
 - `user_memories`：长期用户记忆。
 - `skill_compatibility`：Skill 兼容性扫描结果和内容指纹。
 - `mcp_servers`：MCP Server 的传输方式、启动命令、参数、相对工作目录、环境变量名和启用状态。

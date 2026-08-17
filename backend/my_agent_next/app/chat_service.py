@@ -27,6 +27,7 @@ from .agent_profile_repository import AgentProfileRepository
 from .agent_profile import SKILL_NAME_PATTERN
 from .api_profile_repository import ApiProfileRepository
 from .chat_repository import ChatRepository
+from .attachment_service import AttachmentService
 from .tools import ALL_TOOLS, TOOL_BY_NAME
 from .tools.base import PermissionMode, is_dangerous_command
 
@@ -174,9 +175,28 @@ def set_question_response(thread_id: str, call_id: str, answers: list) -> None:
         event.set()
 
 
+class _EmptyAttachmentService:
+    @staticmethod
+    def for_message(_message_id): return []
+    @staticmethod
+    def multimodal_content(text, _attachments): return text
+    @staticmethod
+    def validate_for_thread(_thread_id, attachment_ids):
+        if attachment_ids:
+            raise ValueError("当前消息仓库不支持附件。")
+        return []
+    @staticmethod
+    def bind(_message_id, _attachments): return None
+
+
 class ChatService:
-    def __init__(self, repository: ChatRepository | None = None):
+    def __init__(self, repository: ChatRepository | None = None,
+                 attachment_service: AttachmentService | None = None):
         self.repo = repository or ChatRepository()
+        self.attachments = attachment_service or (
+            AttachmentService(self.repo.db_path)
+            if hasattr(self.repo, "db_path") else _EmptyAttachmentService()
+        )
 
     # ── 模型解析 ──────────────────────────────────────────────────────────
 
@@ -202,7 +222,7 @@ class ChatService:
     # ── 消息构建 ──────────────────────────────────────────────────────────
 
     def build_messages(self, agent_id: str, thread_id: str,
-                       user_content: str) -> list:
+                       user_content: str, current_attachments=None) -> list:
         """构建发给 LLM 的完整消息列表。"""
         agent_repo = AgentProfileRepository()
         agent = agent_repo.get(agent_id)
@@ -218,12 +238,17 @@ class ChatService:
         history = self.repo.get_messages(thread_id, limit=MAX_CONTEXT)
         for m in history:
             if m.role == "user":
-                messages.append(HumanMessage(content=m.content))
+                content = self.attachments.multimodal_content(
+                    m.content, self.attachments.for_message(getattr(m, "id", 0))
+                )
+                messages.append(HumanMessage(content=content))
             else:
                 messages.append(AIMessage(content=m.content))
 
         # 6. 当前用户消息
-        messages.append(HumanMessage(content=user_content))
+        messages.append(HumanMessage(content=self.attachments.multimodal_content(
+            user_content, current_attachments or []
+        )))
 
         return messages
 
@@ -232,7 +257,8 @@ class ChatService:
     async def stream_chat(self, agent_id: str, thread_id: str,
                           user_content: str, profile,
                           permission_mode: str = "manual",
-                          max_agent_iterations: int = MAX_AGENT_ITERATIONS):
+                          max_agent_iterations: int = MAX_AGENT_ITERATIONS,
+                          attachment_ids: list[str] | None = None):
         """Agent 循环：LLM ↔ 工具执行，SSE 流式返回。"""
         if (
             not isinstance(max_agent_iterations, int)
@@ -248,7 +274,12 @@ class ChatService:
         # 获取 agent
         agent_repo = AgentProfileRepository()
         agent = agent_repo.get(agent_id)
-        messages = self.build_messages(agent_id, thread_id, user_content)
+        current_attachments = self.attachments.validate_for_thread(
+            thread_id, attachment_ids or []
+        )
+        messages = self.build_messages(
+            agent_id, thread_id, user_content, current_attachments
+        )
 
         selected_skill_names: list[str] = []
         if agent:
@@ -272,13 +303,15 @@ class ChatService:
         )
 
         # 存用户消息
-        self.repo.save_message(thread_id, "user", user_content)
+        user_message = self.repo.save_message(thread_id, "user", user_content)
+        if current_attachments:
+            self.attachments.bind(user_message.id, current_attachments)
         self.repo.touch_thread(thread_id)
 
         # 自动标题
         thread = self.repo.get_thread(thread_id)
         if thread and not thread.get("title"):
-            self.repo.update_thread_title(thread_id, user_content[:40])
+            self.repo.update_thread_title(thread_id, user_content[:40] or "图片消息")
 
         # AgentRuntime owns the model/tool loop. This layer only translates
         # runtime events into chat SSE and performs interactive permission I/O.

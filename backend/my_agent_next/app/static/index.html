@@ -247,8 +247,18 @@ index.html — My Agent Next 管理中心
 
   .ws-input-area {
     padding: 12px 16px; border-top: 1px solid var(--border);
-    display: flex; gap: 8px; align-items: flex-end;
+    display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap;
   }
+  .ws-attachment-tray { display:flex; gap:8px; flex:0 0 100%; min-height:0; overflow-x:auto; }
+  .ws-attachment-tray:empty { display:none; }
+  .ws-attachment { position:relative; flex:0 0 72px; width:72px; height:72px; border:1px solid var(--border); border-radius:6px; overflow:hidden; background:#0b0d12; }
+  .ws-attachment img { width:100%; height:100%; object-fit:cover; display:block; }
+  .ws-attachment button { position:absolute; top:3px; right:3px; width:20px; height:20px; padding:0; border:0; border-radius:50%; background:rgba(0,0,0,.75); color:#fff; cursor:pointer; line-height:20px; }
+  .ws-attachment.uploading::after { content:"上传中"; position:absolute; inset:auto 0 0; padding:3px; color:#fff; background:rgba(0,0,0,.72); font-size:.65rem; text-align:center; }
+  .ws-attach-button { flex:0 0 42px; width:42px; height:42px; padding:0 !important; display:inline-flex; align-items:center; justify-content:center; font-size:1.25rem; line-height:1; }
+  .ws-msg-images { display:grid; grid-template-columns:repeat(3,minmax(0,160px)); gap:6px; margin-bottom:7px; }
+  .ws-msg-images img { width:100%; aspect-ratio:1; object-fit:cover; border-radius:5px; cursor:pointer; background:#090b10; }
+  .ws-chat.dragging { outline:2px dashed var(--accent); outline-offset:-8px; }
   .ws-input-area textarea {
     flex: 1; padding: 10px 14px; border-radius: var(--radius-sm);
     border: 1px solid var(--border); background: #11131c; color: var(--text);
@@ -580,6 +590,9 @@ index.html — My Agent Next 管理中心
         </div>
         <div class="ws-messages" id="wsMessages" style="display:none"></div>
         <div class="ws-input-area" id="wsInputArea" style="display:none">
+          <div class="ws-attachment-tray" id="wsAttachmentTray"></div>
+          <input id="wsAttachmentInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden onchange="workspaceChooseAttachments(this.files);this.value=''">
+          <button class="btn btn-ghost ws-attach-button" id="wsAttachButton" onclick="document.getElementById('wsAttachmentInput').click()" title="添加图片" aria-label="添加图片">＋</button>
           <textarea id="wsInput" rows="1" placeholder="输入消息… (Enter 发送，Shift+Enter 换行)"
             onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();workspaceSend()}"></textarea>
           <button class="btn btn-danger btn-sm" id="wsStopButton" onclick="workspaceStop()" style="display:none">停止</button>
@@ -1669,6 +1682,7 @@ let wsActiveWorkflowConversationId = null;
 let wsMessageLoadVersion = 0;
 const wsLiveWorkflowRuns = new Map();
 let _wsWorkflows = [];
+let wsPendingAttachments = [];
 
 async function loadWorkspaceWorkflows(preferredId) {
   try {
@@ -2217,6 +2231,9 @@ function renderWorkspaceConversationChoices() {
 
 async function workspaceOnConversationChange() {
   const selection = workspaceSelection();
+  workspaceClearAttachments(true);
+  $("#wsAttachButton").disabled = selection.type === "workflow";
+  $("#wsAttachButton").title = selection.type === "workflow" ? "工作流暂不支持图片" : "添加图片";
   wsMessageLoadVersion++;
   syncWorkflowRuntimeSettings();
   wsThreads = [];
@@ -2384,11 +2401,68 @@ function workspaceMsgHTML(m) {
   const selection = workspaceSelection();
   const workflow = _wsWorkflows.find(item => item.id === selection.id);
   const label = m.role === "user" ? "用户" : (selection.type === "workflow" ? workflow?.name : _wsAgents.find(a => a.id === selection.id)?.name) || "AI";
+  const images = (m.attachments||[]).map(item=>`<img src="${esc(item.url)}" alt="${esc(item.original_name||"图片")}" onclick="workspacePreviewImage('${esc(item.url)}')">`).join("");
   return `<div class="ws-msg ${m.role}">
     <div class="ws-msg-label">${label}</div>
-    <div class="ws-msg-bubble">${esc(m.content)}</div>
+    <div class="ws-msg-bubble">${images?`<div class="ws-msg-images">${images}</div>`:""}${esc(m.content)}</div>
   </div>`;
 }
+
+function workspacePreviewImage(url) {
+  const overlay=document.createElement("div");
+  overlay.className="modal-overlay";
+  overlay.innerHTML=`<div style="position:relative;max-width:92vw;max-height:92vh"><img src="${esc(url)}" style="display:block;max-width:92vw;max-height:92vh;object-fit:contain"><button class="btn btn-ghost" style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,.7)" aria-label="关闭">×</button></div>`;
+  overlay.onclick=()=>overlay.remove();
+  overlay.querySelector("img").onclick=event=>event.stopPropagation();
+  overlay.querySelector("button").onclick=()=>overlay.remove();
+  document.body.appendChild(overlay);
+}
+window.workspacePreviewImage=workspacePreviewImage;
+
+function renderWorkspaceAttachments() {
+  $("#wsAttachmentTray").innerHTML=wsPendingAttachments.map((item,index)=>`<div class="ws-attachment ${item.uploading?"uploading":""}"><img src="${esc(item.url)}" alt="${esc(item.original_name||"待发送图片")}"><button onclick="workspaceRemoveAttachment(${index})" aria-label="删除图片">×</button></div>`).join("");
+}
+
+async function workspaceChooseAttachments(fileList) {
+  if (!wsActiveThreadId || workspaceSelection().type !== "agent") { toast("请先打开一个 Agent 对话","error"); return; }
+  const files=[...fileList];
+  if (!files.length) return;
+  if (wsPendingAttachments.length+files.length>6) { toast("每条消息最多 6 张图片","error"); return; }
+  const allowed=new Set(["image/png","image/jpeg","image/webp","image/gif"]);
+  if(files.some(file=>!allowed.has(file.type)||file.size>10*1024*1024)){toast("仅支持 10 MB 内的 PNG、JPEG、WebP 或 GIF","error");return;}
+  const drafts=files.map(file=>({uploading:true,url:URL.createObjectURL(file),original_name:file.name,file}));
+  wsPendingAttachments.push(...drafts); renderWorkspaceAttachments();
+  const body=new FormData(); files.forEach(file=>body.append("files",file));
+  try {
+    const response=await fetch(`/api/chat/threads/${wsActiveThreadId}/attachments`,{method:"POST",body});
+    const data=await response.json();
+    if(!response.ok)throw new Error(data.detail||"图片上传失败");
+    drafts.forEach((draft,index)=>{URL.revokeObjectURL(draft.url);Object.assign(draft,data[index],{uploading:false,file:null});});
+    renderWorkspaceAttachments();
+  } catch(error) {
+    drafts.forEach(draft=>{URL.revokeObjectURL(draft.url);wsPendingAttachments=wsPendingAttachments.filter(item=>item!==draft);});
+    renderWorkspaceAttachments(); toast(error.message,"error");
+  }
+}
+window.workspaceChooseAttachments=workspaceChooseAttachments;
+
+async function workspaceRemoveAttachment(index) {
+  const [item]=wsPendingAttachments.splice(index,1); renderWorkspaceAttachments();
+  if(item?.url?.startsWith("blob:"))URL.revokeObjectURL(item.url);
+  if(item?.id&&wsActiveThreadId)fetch(`/api/chat/threads/${wsActiveThreadId}/attachments/${item.id}`,{method:"DELETE"}).catch(()=>{});
+}
+window.workspaceRemoveAttachment=workspaceRemoveAttachment;
+
+function workspaceClearAttachments(deleteRemote=false) {
+  const items=wsPendingAttachments; wsPendingAttachments=[]; renderWorkspaceAttachments();
+  items.forEach(item=>{if(item.url?.startsWith("blob:"))URL.revokeObjectURL(item.url);if(deleteRemote&&item.id&&wsActiveThreadId)fetch(`/api/chat/threads/${wsActiveThreadId}/attachments/${item.id}`,{method:"DELETE"}).catch(()=>{});});
+}
+
+const wsChatElement=$("#wsChat");
+wsChatElement.addEventListener("dragover",event=>{event.preventDefault();wsChatElement.classList.add("dragging");});
+wsChatElement.addEventListener("dragleave",()=>wsChatElement.classList.remove("dragging"));
+wsChatElement.addEventListener("drop",event=>{event.preventDefault();wsChatElement.classList.remove("dragging");workspaceChooseAttachments([...event.dataTransfer.files].filter(file=>file.type.startsWith("image/")));});
+$("#wsInput").addEventListener("paste",event=>{const files=[...event.clipboardData.items].filter(item=>item.kind==="file"&&item.type.startsWith("image/")).map(item=>item.getAsFile()).filter(Boolean);if(files.length){event.preventDefault();workspaceChooseAttachments(files);}});
 
 function workspaceShowPlaceholder(clearSavedThread = true) {
   $("#wsPlaceholder").style.display = "flex";
@@ -2405,7 +2479,8 @@ function workspaceShowPlaceholder(clearSavedThread = true) {
 async function workspaceSend() {
   if (wsStreaming) return;
   const content = $("#wsInput").value.trim();
-  if (!content) return;
+  if (!content && !wsPendingAttachments.length) return;
+  if (wsPendingAttachments.some(item=>item.uploading)) { toast("图片仍在上传，请稍候","error"); return; }
   if (workspaceSelection().type === "workflow") {
     await workspaceRunWorkflow(content);
     return;
@@ -2421,7 +2496,8 @@ async function workspaceSend() {
   $("#wsInput").disabled = true;
 
   // 添加用户消息到界面
-  $("#wsMessages").innerHTML += workspaceMsgHTML({role:"user", content});
+  const outgoingAttachments=wsPendingAttachments.slice();
+  $("#wsMessages").innerHTML += workspaceMsgHTML({role:"user", content,attachments:outgoingAttachments});
   $("#wsMessages").scrollTop = $("#wsMessages").scrollHeight;
 
   // 不在 SSE 返回前创建气泡——等第一个 token 或 tool_call 到了再画
@@ -2538,13 +2614,14 @@ async function workspaceSend() {
         "Content-Type": "application/json",
         "X-Permission-Mode": wsPermissionMode,
       },
-      body: JSON.stringify({ content, permission_mode: wsPermissionMode, max_agent_iterations: maxAgentIterations }),
+      body: JSON.stringify({ content, attachment_ids:outgoingAttachments.map(item=>item.id), permission_mode: wsPermissionMode, max_agent_iterations: maxAgentIterations }),
     });
 
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err.detail || "请求失败");
     }
+    wsPendingAttachments=[]; renderWorkspaceAttachments();
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();

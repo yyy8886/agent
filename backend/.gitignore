@@ -4,3 +4,4 @@
 __pycache__/
 *.egg-info/
 my_agent_next/data/agent-runs/
+my_agent_next/data/attachments/

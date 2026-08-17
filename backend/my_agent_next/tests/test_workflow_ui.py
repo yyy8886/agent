@@ -10,6 +10,10 @@ INDEX_HTML = (
 
 
 class WorkflowUiTests(unittest.TestCase):
+    def test_hidden_class_hides_empty_states_and_overlays(self):
+        source = INDEX_HTML.read_text(encoding="utf-8")
+        self.assertIn(".hidden { display: none !important; }", source)
+
     def test_new_chat_request_does_not_cancel_existing_run(self):
         api_source = (
             INDEX_HTML.parents[1] / "chat_api.py"

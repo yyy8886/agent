@@ -247,4 +247,12 @@ if __name__ == "__main__":
         import threading
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
 
-    uvicorn.run("my_agent_next.app.web_server:app", host=host, port=port, reload=True)
+    # Runtime Agent work may create Python scripts or update Skills. Watching
+    # the whole backend would restart the server and kill active Workers.
+    uvicorn.run(
+        "my_agent_next.app.web_server:app",
+        host=host,
+        port=port,
+        reload=True,
+        reload_dirs=[str(Path(__file__).resolve().parent)],
+    )

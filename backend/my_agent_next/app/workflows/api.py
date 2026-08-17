@@ -99,6 +99,7 @@ def create_workflow_router(service: WorkflowService | None = None) -> APIRouter:
                 permission_mode=str(payload.get("permission_mode", "manual")),
                 recursion_limit=payload.get("recursion_limit", 50),
                 timeout_seconds=payload.get("timeout_seconds", 300),
+                max_agent_iterations=payload.get("max_agent_iterations", 60),
             )
         except ValueError as exc:
             raise handle(exc)
@@ -116,6 +117,24 @@ def create_workflow_router(service: WorkflowService | None = None) -> APIRouter:
                     if answer:
                         chat_repository.save_message(thread_id, "assistant", answer)
                         chat_repository.touch_thread(thread_id)
+                elif event.get("event") in {
+                    "run_error", "run_timeout", "run_cancelled"
+                }:
+                    data = event.get("data") or {}
+                    label = {
+                        "run_error": "工作流运行失败",
+                        "run_timeout": "工作流运行超时",
+                        "run_cancelled": "工作流运行已取消",
+                    }[event["event"]]
+                    report = json.dumps(
+                        data, ensure_ascii=False, indent=2, default=str
+                    )
+                    chat_repository.save_message(
+                        thread_id,
+                        "assistant",
+                        f"[{label}]\n{report}",
+                    )
+                    chat_repository.touch_thread(thread_id)
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
         return StreamingResponse(

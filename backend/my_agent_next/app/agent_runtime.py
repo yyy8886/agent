@@ -15,6 +15,25 @@ TextCallback = Callable[[object], str]
 ReviewCallback = Callable[[str], bool]
 
 
+def _has_repeated_suffix(
+    text: str,
+    *,
+    repeats: int = 4,
+    min_block_length: int = 12,
+    max_block_length: int = 512,
+) -> bool:
+    """Detect a substantial phrase repeated consecutively at the stream tail."""
+    if len(text) < repeats * min_block_length:
+        return False
+    tail = text[-(repeats * max_block_length):]
+    largest = min(max_block_length, len(tail) // repeats)
+    for block_length in range(min_block_length, largest + 1):
+        block = tail[-block_length:]
+        if block.strip() and tail.endswith(block * repeats):
+            return True
+    return False
+
+
 @dataclass(frozen=True, slots=True)
 class AgentRuntimeResult:
     answer: str
@@ -44,11 +63,18 @@ async def run_agent_runtime(
         if check_cancelled:
             check_cancelled()
         response = None
+        streamed_text = ""
         async for chunk in model.astream(messages):
             if check_cancelled:
                 check_cancelled()
             response = chunk if response is None else response + chunk
             text = message_text(chunk)
+            if text:
+                streamed_text += text
+                if _has_repeated_suffix(streamed_text):
+                    raise RuntimeError(
+                        "检测到模型连续重复输出，已自动停止本次生成。"
+                    )
             if text and not hold_for_review:
                 await emit("token", {"text": text})
         if response is None:

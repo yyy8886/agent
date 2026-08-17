@@ -91,18 +91,27 @@ async def send_message(thread_id: str, payload: dict, request: Request):
         or str(payload.get("permission_mode", ""))
         or "manual"
     )
+    max_agent_iterations = payload.get("max_agent_iterations", 60)
+    if (
+        not isinstance(max_agent_iterations, int)
+        or isinstance(max_agent_iterations, bool)
+        or not 1 <= max_agent_iterations <= 200
+    ):
+        raise HTTPException(400, "max_agent_iterations 必须在 1-200 之间。")
 
     async def cancellable_stream():
         task = asyncio.current_task()
         if task is not None:
             previous = _active_chat_tasks.get(thread_id)
             if previous is not None and previous is not task and not previous.done():
-                previous.cancel()
+                yield f"data: {json.dumps({'error': '该对话正在生成回答，请等待完成或先点击停止。'}, ensure_ascii=False)}\n\n"
+                return
             _active_chat_tasks[thread_id] = task
         try:
             async for chunk in service.stream_chat(
                 thread["agent_id"], thread_id, content, profile,
                 permission_mode=permission_mode,
+                max_agent_iterations=max_agent_iterations,
             ):
                 yield chunk
         except asyncio.CancelledError:

@@ -1,22 +1,25 @@
-import zlib, base64, re, sys
+import base64, zlib, re, urllib.parse, collections
 
 path = r'C:\Users\yanzichen\Documents\ad_mp_top.drawio'
 with open(path, 'r', encoding='utf-8') as f:
     content = f.read()
 
-# 提取所有 diagram 内容
-diagrams = re.findall(r'<diagram[^>]*>(.*?)</diagram>', content, re.DOTALL)
-print(f'页面数量: {len(diagrams)}')
-for i, d in enumerate(diagrams):
-    try:
-        # drawio 压缩格式: 先 base64 解码，再 zlib 解压
-        decoded = base64.b64decode(d)
-        xml = zlib.decompress(decoded).decode('utf-8')
-        print(f'--- 页面 {i+1} 解压后长度: {len(xml)} ---')
-        verts = len(re.findall(r'vertex="1"', xml))
-        edges = len(re.findall(r'edge="1"', xml))
-        cells = len(re.findall(r'<mxCell', xml))
-        print(f'  顶点: {verts}, 边: {edges}, mxCell: {cells}')
-    except Exception as e:
-        print(f'页面 {i+1} 解压失败: {e}')
-        print(f'  前100字符: {d[:100]}')
+m = re.search(r'<diagram[^>]*>(.*?)</diagram>', content, re.DOTALL)
+compressed = m.group(1).strip()
+decoded = base64.b64decode(compressed)
+xml = zlib.decompress(decoded, -15).decode('utf-8')
+# URL 解码
+xml = urllib.parse.unquote(xml)
+
+with open(r'C:\Users\yanzichen\Documents\ad_mp_top_decompressed.xml', 'w', encoding='utf-8') as f:
+    f.write(xml)
+
+print('最终XML长度:', len(xml))
+colors = collections.Counter()
+for mm in re.finditer(r'fillColor=#([0-9A-Fa-f]{6})', xml):
+    colors[mm.group(1).upper()] += 1
+print('fillColor 颜色分布:')
+for c, n in colors.most_common(30):
+    print('  #%s: %d' % (c, n))
+print('vertex 节点数:', xml.count('vertex="1"'))
+print('edge 边数:', xml.count('edge="1"'))

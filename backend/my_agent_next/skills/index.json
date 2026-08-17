@@ -11,7 +11,13 @@
       "directory": "drawio-skill",
       "name": "drawio-skill",
       "description": "Use when the user requests diagrams, flowcharts, architecture diagrams, ER diagrams, UML / sequence / class diagrams, SysML / MBSE diagrams (block definition, internal block, requirement, parametric), BPMN business process diagrams, swimlane / cross-functional flowcharts, network topology, cloud architecture from Terraform or Kubernetes manifests, ML/DL model figures (Transformer/CNN/LSTM), mind maps, or any visualization. Also use proactively when explaining systems with 3+ components, complex data flows, or relationships that benefit from visual representation. Best suited when the diagram needs custom styling, rich shape vocabulary, swimlanes, or exportable images (PNG/SVG/PDF/JPG). Generates .drawio XML and exports locally via the native draw.io desktop CLI.",
-      "sha256": "95653730e181c7ddef73b97f562524038bcdd9f47cf77f88154d564a5100d122"
+      "sha256": "6a3e71cbcfabe9d848e4c5e16f3b8062779bb9d9ecb682ee7bf9bf8e1bfef4b6"
+    },
+    {
+      "directory": "drawio-toolkit",
+      "name": "drawio-toolkit",
+      "description": "Process drawio files that are compressed (deflate/base64) or need node-type-based coloring. Decompress compressed .drawio pages to plain XML, compress plain XML back to draw.io's compact format, analyze diagram structure (pages, node types, color coverage), and colorize nodes by their label type (MUX/ICG/GATE/BUF etc). Use when a .drawio file cannot be read by other tools because pages are compressed, or when you need to visually distinguish node types in a large diagram.",
+      "sha256": "92c64518eede7253810787fa047e44f2a41139462e17133ec8e9c4f4d98449d3"
     },
     {
       "directory": "environment-memory",

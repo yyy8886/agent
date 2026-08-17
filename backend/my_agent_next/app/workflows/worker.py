@@ -24,7 +24,6 @@ from ..agent_runtime import run_agent_runtime
 from ..agent_profile_repository import AgentProfileRepository
 from ..chat_service import (
     ChatService,
-    MAX_AGENT_ITERATIONS,
     _build_model,
     _message_text,
     _tool_names_for_skills,
@@ -57,6 +56,7 @@ class WorkerSpec:
     inputs: dict
     permission_mode: str
     recursion_limit: int
+    max_agent_iterations: int = 60
 
 
 class EventEmitter:
@@ -210,7 +210,7 @@ class WorkerGateway:
             messages=messages,
             model=model,
             selected_skill_names=selected_skill_names,
-            max_iterations=MAX_AGENT_ITERATIONS,
+            max_iterations=self.spec.max_agent_iterations,
             emit=emit,
             execute_tool=execute_tool,
             message_text=_message_text,
@@ -351,8 +351,17 @@ def run_workflow_worker(spec: WorkerSpec, queue, cancel_event) -> None:
     except WorkflowCancelledError as exc:
         emitter.emit("run_cancelled", {"message": str(exc)}, run_id=spec.run_id)
         queue.put({"event": "__complete__"})
-    except Exception as exc:
-        emitter.emit("run_error", {"message": str(exc), "type": type(exc).__name__, "traceback": traceback.format_exc(limit=8)}, run_id=spec.run_id)
+    except BaseException as exc:
+        emitter.emit("run_error", {
+            "message": str(exc),
+            "type": type(exc).__name__,
+            "traceback": traceback.format_exc(limit=20),
+            "report_id": f"workflow-{spec.run_id}",
+            "run_id": spec.run_id,
+            "workflow_id": spec.workflow_id,
+            "worker_pid": os.getpid(),
+            "fatal_base_exception": not isinstance(exc, Exception),
+        }, run_id=spec.run_id)
         queue.put({"event": "__complete__"})
 
 

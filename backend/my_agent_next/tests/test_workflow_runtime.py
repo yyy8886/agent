@@ -12,7 +12,10 @@ from langchain_core.messages import AIMessageChunk, SystemMessage
 from my_agent_next.app.workflows.artifact import WorkflowArtifactStore
 from my_agent_next.app.workflows.model import WorkflowDraft
 from my_agent_next.app.workflows.repository import WorkflowRepository
-from my_agent_next.app.workflows.run_manager import WorkflowRunManager
+from my_agent_next.app.workflows.run_manager import (
+    ActiveWorkflowRun,
+    WorkflowRunManager,
+)
 from my_agent_next.app.workflows.worker import (
     EventEmitter,
     WorkerGateway,
@@ -112,6 +115,16 @@ class WorkflowRuntimeTests(unittest.IsolatedAsyncioTestCase):
                         timeout_seconds=value,
                     )
 
+    def test_rejects_agent_iterations_outside_public_range(self):
+        for value in (0, 201, 1.5, True):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "max_agent_iterations"):
+                    self.manager.start(
+                        "missing-flow",
+                        {"message": "hello"},
+                        max_agent_iterations=value,
+                    )
+
     async def test_hard_stops_non_cooperative_python_while_loop(self):
         self.repository.save(
             WorkflowDraft("infinite-flow", "Infinite", "", INFINITE_LOOP_SOURCE),
@@ -130,6 +143,51 @@ class WorkflowRuntimeTests(unittest.IsolatedAsyncioTestCase):
         await cancel_task
         self.assertTrue(any(event["event"] == "run_cancelled" for event in events))
         self.assertFalse(active.process.is_alive())
+
+    async def test_unexpected_worker_exit_has_copyable_diagnostics(self):
+        class DeadProcess:
+            pid = 4321
+            exitcode = 1
+
+            def is_alive(self):
+                return False
+
+        class EmptyQueue:
+            def get_nowait(self):
+                raise __import__("queue").Empty
+
+            def get(self, timeout=None):
+                raise __import__("queue").Empty
+
+            def close(self):
+                pass
+
+            def join_thread(self):
+                pass
+
+        class CancelEvent:
+            def set(self):
+                pass
+
+        active = ActiveWorkflowRun(
+            "failed-run",
+            "diagnostic-flow",
+            DeadProcess(),
+            EmptyQueue(),
+            CancelEvent(),
+            __import__("time").monotonic(),
+            300,
+        )
+        self.manager._runs[active.run_id] = active
+        events = [event async for event in self.manager.stream(active.run_id)]
+        report = events[-1]["data"]
+        self.assertEqual(events[-1]["event"], "run_error")
+        self.assertEqual(report["type"], "WorkerUnexpectedExit")
+        self.assertEqual(report["exit_code"], 1)
+        self.assertEqual(report["worker_pid"], 4321)
+        self.assertEqual(report["workflow_id"], "diagnostic-flow")
+        self.assertIn("report_id", report)
+        self.assertIn("last_checkpoints", report)
 
     def test_redacts_sensitive_event_fields_recursively(self):
         value = _redact_value({"input": {"api_key": "secret", "city": "北京"}, "token_count": 12})

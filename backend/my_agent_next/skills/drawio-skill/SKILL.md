@@ -75,6 +75,14 @@ When the workflow references one of these, read it on demand — none of them ne
 | `scripts/prdiff.py` | You're setting up **automated PR diagram review** in CI — for every `.drawio` changed between two git refs it renders base/head/diff PNGs and emits a Markdown report; ships with a composite GitHub Action (`.github/actions/drawio-diff/`) that posts a sticky PR comment. See `references/pr-bot.md` |
 | `scripts/tubemap.py` | The user wants a **metro / subway / tube map** — a system, pipeline, or journey drawn as coloured transit lines with octilinear (H/V/45°) routing, white interchange circles, and station stops. Compose a metro JSON (lines = ordered stations on an integer grid, shared stations = interchanges), then `tubemap.py metro.json -o metro.drawio`. Stdlib-only; schema + the one grid rule in `references/tubemap.md` |
 
+### Additional files
+
+| File | Purpose |
+| --- | --- |
+| `agents/openai.yaml` | UI-facing metadata for skill lists and chips (display name, short description, brand color, default prompt). Read by the harness, not the agent. |
+| `.github/actions/drawio-diff/action.yml` | Composite GitHub Action that runs `prdiff.py` in CI — checks out full history, installs draw.io + Graphviz, renders base/head/diff PNGs, uploads artifacts, writes the job summary, and posts/updates a sticky PR comment. See `references/pr-bot.md`. |
+| `.github/workflows/drawio-pr-diff.example.yml` | Template workflow wiring the action to `pull_request` events. Ships as `.example.yml` and gated with `if: false` — copy and adapt it in your own repo to enable. |
+
 ## Prerequisites
 
 The draw.io desktop app must be installed and the CLI accessible:

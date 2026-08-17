@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import multiprocessing
+import platform
 import queue as queue_module
+import sys
 import threading
 import time
 import uuid
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import AsyncIterator
@@ -23,7 +26,11 @@ DEFAULT_RECURSION_LIMIT = 50
 MIN_TIMEOUT_SECONDS = 1
 MAX_TIMEOUT_SECONDS = 1800
 DEFAULT_TIMEOUT_SECONDS = 300
+MIN_AGENT_ITERATIONS = 1
+MAX_AGENT_ITERATIONS = 200
+DEFAULT_AGENT_ITERATIONS = 60
 HARD_CANCEL_GRACE_SECONDS = 1.5
+EXIT_QUEUE_GRACE_SECONDS = 0.25
 
 
 @dataclass(slots=True)
@@ -58,6 +65,7 @@ class WorkflowRunManager:
         permission_mode: str = "manual",
         recursion_limit: int = DEFAULT_RECURSION_LIMIT,
         timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+        max_agent_iterations: int = DEFAULT_AGENT_ITERATIONS,
     ) -> ActiveWorkflowRun:
         if not isinstance(inputs, dict) or not isinstance(inputs.get("message"), str) or not inputs["message"].strip():
             raise ValueError("工作流输入必须包含非空字符串 message。")
@@ -67,6 +75,10 @@ class WorkflowRunManager:
             raise ValueError(f"recursion_limit 必须在 {MIN_RECURSION_LIMIT}-{MAX_RECURSION_LIMIT} 之间。")
         if not isinstance(timeout_seconds, int) or isinstance(timeout_seconds, bool) or not MIN_TIMEOUT_SECONDS <= timeout_seconds <= MAX_TIMEOUT_SECONDS:
             raise ValueError(f"timeout_seconds 必须在 {MIN_TIMEOUT_SECONDS}-{MAX_TIMEOUT_SECONDS} 秒之间。")
+        if not isinstance(max_agent_iterations, int) or isinstance(max_agent_iterations, bool) or not MIN_AGENT_ITERATIONS <= max_agent_iterations <= MAX_AGENT_ITERATIONS:
+            raise ValueError(
+                f"max_agent_iterations 必须在 {MIN_AGENT_ITERATIONS}-{MAX_AGENT_ITERATIONS} 之间。"
+            )
 
         artifacts: dict[str, str] = {}
         dependencies: dict[str, dict[str, str]] = {}
@@ -82,6 +94,7 @@ class WorkflowRunManager:
             inputs={"message": inputs["message"]},
             permission_mode=permission_mode,
             recursion_limit=recursion_limit,
+            max_agent_iterations=max_agent_iterations,
         )
         process = self._context.Process(
             target=run_workflow_worker,
@@ -113,6 +126,45 @@ class WorkflowRunManager:
         if active is None:
             raise ValueError("工作流运行不存在。")
         completed = False
+        checkpoints: deque[dict] = deque(maxlen=8)
+
+        def remember(event: dict) -> None:
+            data = event.get("data") or {}
+            checkpoint = {
+                "event": event.get("event"),
+                "sequence": event.get("sequence"),
+                "timestamp": event.get("timestamp"),
+            }
+            for key in ("node", "agent_id", "tool", "skill", "workflow_id"):
+                if key in data:
+                    checkpoint[key] = str(data[key])[:160]
+            checkpoints.append(checkpoint)
+
+        def unexpected_exit(exit_code: int | None) -> dict:
+            return {
+                "message": f"Worker 意外退出，退出码 {exit_code}。",
+                "type": "WorkerUnexpectedExit",
+                "report_id": f"workflow-{run_id}",
+                "run_id": run_id,
+                "workflow_id": active.workflow_id,
+                "worker_pid": active.process.pid,
+                "exit_code": exit_code,
+                "exit_code_hint": (
+                    "退出码 1 通常表示子进程中存在未捕获异常、解释器启动失败，"
+                    "或开发服务器热重载终止了 Worker。"
+                    if exit_code == 1
+                    else "负退出码通常表示进程被信号或外部机制终止。"
+                    if isinstance(exit_code, int) and exit_code < 0
+                    else "该退出码没有更具体的平台解释。"
+                ),
+                "elapsed_seconds": round(time.monotonic() - active.started_at, 3),
+                "timeout_seconds": active.timeout_seconds,
+                "cancel_requested": active.cancel_requested_at is not None,
+                "last_checkpoints": list(checkpoints),
+                "python": sys.version,
+                "platform": platform.platform(),
+                "next_step": "请提供此 data 对象及对应工作流运行轨迹。",
+            }
         try:
             while True:
                 now = time.monotonic()
@@ -136,12 +188,30 @@ class WorkflowRunManager:
                     if event.get("event") == "__complete__":
                         completed = True
                         break
+                    remember(event)
                     yield event
                 if completed:
                     break
                 if not active.process.is_alive():
+                    deadline = time.monotonic() + EXIT_QUEUE_GRACE_SECONDS
+                    while time.monotonic() < deadline:
+                        try:
+                            event = active.queue.get(timeout=0.04)
+                        except queue_module.Empty:
+                            continue
+                        if event.get("event") == "__complete__":
+                            completed = True
+                            break
+                        remember(event)
+                        yield event
+                    if completed:
+                        break
                     exit_code = active.process.exitcode
-                    yield {"event": "run_error", "run_id": run_id, "data": {"message": f"Worker 意外退出，退出码 {exit_code}。"}}
+                    yield {
+                        "event": "run_error",
+                        "run_id": run_id,
+                        "data": unexpected_exit(exit_code),
+                    }
                     break
                 await asyncio.sleep(0.04 if drained else 0.08)
         finally:

@@ -1,0 +1,114 @@
+name: "Draw.io PR Diff"
+description: "Render base/head/diff PNGs for every .drawio changed in a PR and post a sticky comment."
+author: "drawio-skill"
+
+inputs:
+  base:
+    description: "Base git ref (default: the PR base branch)"
+    required: false
+    default: ""
+  head:
+    description: "Head git ref (default: the PR head)"
+    required: false
+    default: ""
+  out-dir:
+    description: "Directory to write PNGs and the Markdown report"
+    required: false
+    default: "drawio-pr"
+  skip-tool-install:
+    description: "Set 'true' if drawio and dot are already on PATH"
+    required: false
+    default: "false"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout full history
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Install draw.io CLI + Graphviz
+      if: inputs.skip-tool-install != 'true'
+      shell: bash
+      run: |
+        set -euxo pipefail
+        # Graphviz (dot) for autolayout.py
+        sudo apt-get update
+        sudo apt-get install -y graphviz xvfb
+        # draw.io desktop CLI (Electron) — install .deb
+        curl -sL "https://github.com/jgraph/drawio-desktop/releases/latest/download/drawio-amd64-*.deb" -o /tmp/drawio.deb || true
+        if [ -f /tmp/drawio.deb ]; then
+          sudo dpkg -i /tmp/drawio.deb || sudo apt-get -f install -y
+        fi
+        # Fallback: try the stable URL pattern
+        if ! command -v drawio >/dev/null 2>&1; then
+          curl -sL "https://github.com/jgraph/drawio-desktop/releases/download/v24.7.8/drawio-amd64-24.7.8.deb" -o /tmp/drawio.deb
+          sudo dpkg -i /tmp/drawio.deb || sudo apt-get -f install -y
+        fi
+        command -v drawio && drawio --version || echo "drawio not installed (will degrade gracefully)"
+
+    - name: Run prdiff.py
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euxo pipefail
+        BASE="${BASE_REF:-${{ github.event.pull_request.base.sha }}}"
+        HEAD="${HEAD_REF:-${{ github.event.pull_request.head.sha }}}"
+        if [ -z "$BASE" ] || [ -z "$HEAD" ]; then
+          echo "::warning::Missing base/head refs — skipping PR diff"
+          exit 0
+        fi
+        python3 "${{ github.action_path }}/../../../scripts/prdiff.py" \
+          --base "$BASE" --head "$HEAD" \
+          --out-dir "${{ inputs.out-dir }}" \
+          -o "${{ inputs.out-dir }}/report.md"
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: drawio-pr-diff
+        path: ${{ inputs.out-dir }}/
+        if-no-files-found: ignore
+
+    - name: Write job summary
+      shell: bash
+      run: |
+        if [ -f "${{ inputs.out-dir }}/report.md" ]; then
+          cat "${{ inputs.out-dir }}/report.md" >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+    - name: Post / update sticky PR comment
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euxo pipefail
+        REPORT="${{ inputs.out-dir }}/report.md"
+        if [ ! -f "$REPORT" ]; then
+          echo "No report — skipping comment"
+          exit 0
+        fi
+        PR_NUMBER="${{ github.event.pull_request.number }}"
+        if [ -z "$PR_NUMBER" ]; then
+          echo "Not a PR — skipping comment"
+          exit 0
+        fi
+        MARKER="<!-- drawio-pr-diff-bot -->"
+        BODY="$(cat "$REPORT")"
+        # Find existing comment with marker
+        EXISTING=$(gh api "repos/${{ github.repository }}/issues/$PR_NUMBER/comments" \
+          --jq ".[] | select(.body | startswith(\"$MARKER\")) | .id" | head -1)
+        if [ -n "$EXISTING" ]; then
+          gh api "repos/${{ github.repository }}/issues/comments/$EXISTING" \
+            -X PATCH -f body="$MARKER
+$BODY" >/dev/null
+        else
+          gh pr comment "$PR_NUMBER" --body "$MARKER
+$BODY"
+        fi
+
+branding:
+  icon: "git-compare"
+  color: "orange"

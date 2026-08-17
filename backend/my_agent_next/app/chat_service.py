@@ -22,6 +22,7 @@ import yaml
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from .agent_runtime import run_agent_runtime
+from .agent_run_log import AgentRunLog, redact_sensitive
 from .agent_profile_repository import AgentProfileRepository
 from .agent_profile import SKILL_NAME_PATTERN
 from .api_profile_repository import ApiProfileRepository
@@ -37,6 +38,8 @@ MAX_CONTEXT = _chat_config.get("max_context_messages", 20)
 KEEP_RECENT = _chat_config.get("keep_recent_on_compact", 8)
 MAX_PER_THREAD = _chat_config.get("max_messages_per_thread", 500)
 MAX_AGENT_ITERATIONS = _chat_config.get("max_agent_iterations", 10)
+MIN_AGENT_ITERATIONS = 1
+MAX_CONFIGURABLE_AGENT_ITERATIONS = 200
 
 SKILL_TOOL_ALLOWLISTS = {
     "review-agent": {"read_file", "grep", "glob"},
@@ -220,8 +223,20 @@ class ChatService:
 
     async def stream_chat(self, agent_id: str, thread_id: str,
                           user_content: str, profile,
-                          permission_mode: str = "manual"):
+                          permission_mode: str = "manual",
+                          max_agent_iterations: int = MAX_AGENT_ITERATIONS):
         """Agent 循环：LLM ↔ 工具执行，SSE 流式返回。"""
+        if (
+            not isinstance(max_agent_iterations, int)
+            or isinstance(max_agent_iterations, bool)
+            or not MIN_AGENT_ITERATIONS
+            <= max_agent_iterations
+            <= MAX_CONFIGURABLE_AGENT_ITERATIONS
+        ):
+            raise ValueError(
+                "max_agent_iterations 必须在 1-200 之间。"
+            )
+
         # 获取 agent
         agent_repo = AgentProfileRepository()
         agent = agent_repo.get(agent_id)
@@ -252,9 +267,53 @@ class ChatService:
         # AgentRuntime owns the model/tool loop. This layer only translates
         # runtime events into chat SSE and performs interactive permission I/O.
         runtime_events: asyncio.Queue[tuple[str, dict]] = asyncio.Queue()
+        partial_output = ""
+        recovery_steps: list[str] = []
+        run_log = AgentRunLog(
+            agent_id=agent_id,
+            thread_id=thread_id,
+            user_content=user_content,
+            max_iterations=max_agent_iterations,
+        )
 
         async def emit(event: str, data: dict) -> None:
+            nonlocal partial_output
+            if event == "token":
+                token_text = str(data.get("text", ""))
+                partial_output = (partial_output + token_text)[-1200:]
+                run_log.append_output(token_text)
+            else:
+                run_log.flush_output()
+                run_log.write(event, data)
+                if event == "tool_call" and len(recovery_steps) < 20:
+                    name = str(data.get("name", "unknown"))
+                    arguments = json.dumps(
+                        redact_sensitive(data.get("args", {})),
+                        ensure_ascii=False,
+                        default=str,
+                    )
+                    recovery_steps.append(
+                        f"- 调用 {name}：{arguments[:300]}"
+                    )
+                elif event == "tool_result" and recovery_steps:
+                    result = str(data.get("result", "")).replace("\n", " ")
+                    recovery_steps[-1] += f"；结果：{result[:300]}"
             await runtime_events.put((event, data))
+
+        def recovery_message(status: str, detail: str) -> str:
+            sections = [
+                f"[{status}] {detail}",
+                "以下是中断前保留的执行现场，后续可以据此继续，但必须先核验文件当前状态：",
+            ]
+            if recovery_steps:
+                sections.append("已执行的工具步骤：\n" + "\n".join(recovery_steps))
+            else:
+                sections.append("尚未完成任何工具调用。")
+            if partial_output.strip():
+                sections.append(
+                    "中断前的模型输出片段：\n" + partial_output.strip()
+                )
+            return "\n\n".join(sections)
 
         async def execute_tool(tool_name: str, tool_args: dict, call_id: str) -> str:
             if tool_name == "ask_user_question":
@@ -325,7 +384,7 @@ class ChatService:
             messages=messages,
             model=model,
             selected_skill_names=selected_skill_names,
-            max_iterations=MAX_AGENT_ITERATIONS,
+            max_iterations=max_agent_iterations,
             emit=emit,
             execute_tool=execute_tool,
             message_text=_message_text,
@@ -347,9 +406,43 @@ class ChatService:
                     yield f"data: {json.dumps({'event': event, 'data': data})}\n\n"
             runtime_result = await runtime_task
             full_response = runtime_result.answer
+            run_log.finish(
+                "run_completed",
+                iterations=runtime_result.iterations,
+                tool_call_count=len(runtime_result.tool_calls),
+                has_answer=bool(full_response),
+            )
+        except asyncio.CancelledError:
+            if not runtime_task.done():
+                runtime_task.cancel()
+            run_log.finish("run_cancelled", reason="request_cancelled")
+            self.repo.save_message(
+                thread_id,
+                "assistant",
+                recovery_message(
+                    "运行已取消，可继续",
+                    "本次回答在完成前被停止。",
+                ),
+            )
+            self.repo.touch_thread(thread_id)
+            raise
         except Exception as exc:
             if not runtime_task.done():
                 runtime_task.cancel()
+            run_log.finish(
+                "run_failed",
+                error_type=type(exc).__name__,
+                error=str(exc)[:2000],
+            )
+            self.repo.save_message(
+                thread_id,
+                "assistant",
+                recovery_message(
+                    "运行失败，可继续",
+                    str(exc)[:500],
+                ),
+            )
+            self.repo.touch_thread(thread_id)
             yield f"data: {json.dumps({'error': str(exc)[:500]})}\n\n"
             return
         finally:
@@ -378,6 +471,13 @@ class ChatService:
         # 存 AI 回复
         if full_response:
             self.repo.save_message(thread_id, "assistant", full_response)
+            self.repo.touch_thread(thread_id)
+        else:
+            self.repo.save_message(
+                thread_id,
+                "assistant",
+                "[运行结束但未产生输出] 模型没有返回可显示的回答。",
+            )
             self.repo.touch_thread(thread_id)
 
         # DB 硬上限

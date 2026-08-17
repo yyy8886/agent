@@ -530,6 +530,20 @@ index.html — My Agent Next 管理中心
               onchange="saveWorkflowTimeout(this.value)" style="width:92px;padding:6px 8px">
             <span style="font-size:.72rem;color:var(--text-dim)">秒</span>
           </div>
+          <label for="wsWorkflowAgentIterations" style="display:block;margin-top:10px;font-size:.7rem;font-weight:700;color:var(--text-dim);text-transform:uppercase">Agent 工具轮数</label>
+          <div style="display:flex;align-items:center;gap:7px;margin-top:6px">
+            <input id="wsWorkflowAgentIterations" type="number" min="1" max="200" step="10" value="60"
+              onchange="saveWorkflowAgentIterations(this.value)" style="width:92px;padding:6px 8px">
+            <span style="font-size:.72rem;color:var(--text-dim)">轮/Agent</span>
+          </div>
+        </div>
+        <div class="ws-sidebar-section" id="wsAgentRuntimeSettings" style="display:none">
+          <label for="wsAgentIterations" style="font-size:.7rem;font-weight:700;color:var(--text-dim);text-transform:uppercase">Agent 工具轮数</label>
+          <div style="display:flex;align-items:center;gap:7px;margin-top:6px">
+            <input id="wsAgentIterations" type="number" min="1" max="200" step="10" value="60"
+              onchange="saveAgentIterations(this.value)" style="width:92px;padding:6px 8px">
+            <span style="font-size:.72rem;color:var(--text-dim)">轮</span>
+          </div>
         </div>
         <div class="ws-thread-list" id="wsThreadList">
           <div class="ws-empty-threads">请先选择 Agent 或工作流</div>
@@ -1561,6 +1575,7 @@ let wsActiveThreadId = null;
 let wsStreaming = false;
 let wsActiveWorkflowRunId = null;
 let wsActiveWorkflowConversationId = null;
+let wsMessageLoadVersion = 0;
 let _wsWorkflows = [];
 
 async function loadWorkspaceWorkflows(preferredId) {
@@ -1945,9 +1960,18 @@ function workspaceSelection() {
   return separator < 0 ? {type:"", id:""} : {type:value.slice(0, separator), id:value.slice(separator + 1)};
 }
 
+function workspaceThreadStorageKey(selection = workspaceSelection()) {
+  if (!selection.id) return "wsActiveThreadId";
+  return `wsActiveThreadId:${selection.type}:${selection.id}`;
+}
+
 const WORKFLOW_TIMEOUT_DEFAULT = 300;
 const WORKFLOW_TIMEOUT_MIN = 1;
 const WORKFLOW_TIMEOUT_MAX = 1800;
+const WORKFLOW_AGENT_ITERATIONS_DEFAULT = 60;
+const WORKFLOW_AGENT_ITERATIONS_MIN = 1;
+const WORKFLOW_AGENT_ITERATIONS_MAX = 200;
+const AGENT_ITERATIONS_DEFAULT = 60;
 
 function normalizedWorkflowTimeout(value) {
   const parsed = Number.parseInt(value, 10);
@@ -1957,6 +1981,24 @@ function normalizedWorkflowTimeout(value) {
 
 function workflowTimeoutStorageKey(workflowId) {
   return `workflowTimeoutSeconds:${workflowId}`;
+}
+
+function normalizedWorkflowAgentIterations(value) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return WORKFLOW_AGENT_ITERATIONS_DEFAULT;
+  return Math.max(WORKFLOW_AGENT_ITERATIONS_MIN, Math.min(WORKFLOW_AGENT_ITERATIONS_MAX, parsed));
+}
+
+function workflowAgentIterationsStorageKey(workflowId) {
+  return `workflowAgentIterations:${workflowId}`;
+}
+
+function currentWorkflowAgentIterations() {
+  const workflowId = workspaceSelection().id;
+  if (!workflowId) return WORKFLOW_AGENT_ITERATIONS_DEFAULT;
+  return normalizedWorkflowAgentIterations(
+    localStorage.getItem(workflowAgentIterationsStorageKey(workflowId))
+  );
 }
 
 function currentWorkflowTimeout() {
@@ -1969,8 +2011,36 @@ function syncWorkflowRuntimeSettings() {
   const selection = workspaceSelection();
   const section = $("#wsWorkflowRuntimeSettings");
   section.style.display = selection.type === "workflow" ? "" : "none";
-  if (selection.type === "workflow") $("#wsWorkflowTimeout").value = currentWorkflowTimeout();
+  $("#wsAgentRuntimeSettings").style.display = selection.type === "agent" ? "" : "none";
+  if (selection.type === "workflow") {
+    $("#wsWorkflowTimeout").value = currentWorkflowTimeout();
+    $("#wsWorkflowAgentIterations").value = currentWorkflowAgentIterations();
+  }
+  if (selection.type === "agent") {
+    $("#wsAgentIterations").value = currentAgentIterations();
+  }
 }
+
+function agentIterationsStorageKey(agentId) {
+  return `agentIterations:${agentId}`;
+}
+
+function currentAgentIterations() {
+  const selection = workspaceSelection();
+  if (selection.type !== "agent" || !selection.id) return AGENT_ITERATIONS_DEFAULT;
+  return normalizedWorkflowAgentIterations(
+    localStorage.getItem(agentIterationsStorageKey(selection.id))
+  );
+}
+
+function saveAgentIterations(value) {
+  const selection = workspaceSelection();
+  if (selection.type !== "agent" || !selection.id) return;
+  const normalized = normalizedWorkflowAgentIterations(value);
+  $("#wsAgentIterations").value = normalized;
+  localStorage.setItem(agentIterationsStorageKey(selection.id), String(normalized));
+}
+window.saveAgentIterations = saveAgentIterations;
 
 function saveWorkflowTimeout(value) {
   const selection = workspaceSelection();
@@ -1980,6 +2050,18 @@ function saveWorkflowTimeout(value) {
   localStorage.setItem(workflowTimeoutStorageKey(selection.id), String(normalized));
 }
 window.saveWorkflowTimeout = saveWorkflowTimeout;
+
+function saveWorkflowAgentIterations(value) {
+  const selection = workspaceSelection();
+  if (selection.type !== "workflow" || !selection.id) return;
+  const normalized = normalizedWorkflowAgentIterations(value);
+  $("#wsWorkflowAgentIterations").value = normalized;
+  localStorage.setItem(
+    workflowAgentIterationsStorageKey(selection.id),
+    String(normalized),
+  );
+}
+window.saveWorkflowAgentIterations = saveWorkflowAgentIterations;
 
 function renderWorkspaceConversationChoices() {
   const select = $("#wsConversationSelect");
@@ -2001,6 +2083,7 @@ function renderWorkspaceConversationChoices() {
 
 async function workspaceOnConversationChange() {
   const selection = workspaceSelection();
+  wsMessageLoadVersion++;
   syncWorkflowRuntimeSettings();
   wsThreads = [];
   wsActiveThreadId = null;
@@ -2018,7 +2101,8 @@ async function workspaceOnConversationChange() {
       if (!response.ok) throw new Error("工作流对话加载失败");
       wsThreads = await response.json();
       workspaceRenderThreadList();
-      const savedThread = localStorage.getItem("wsActiveThreadId");
+      const savedThread = localStorage.getItem(workspaceThreadStorageKey(selection))
+        || localStorage.getItem("wsActiveThreadId");
       if (savedThread && wsThreads.some(thread => thread.id === savedThread)) {
         wsActiveWorkflowConversationId = savedThread;
         workspaceOpenThread(savedThread);
@@ -2041,7 +2125,8 @@ async function workspaceOnConversationChange() {
     const res = await fetch(`/api/chat/threads?agent_id=${selection.id}`);
     wsThreads = await res.json();
     workspaceRenderThreadList();
-    const savedThread = localStorage.getItem("wsActiveThreadId");
+    const savedThread = localStorage.getItem(workspaceThreadStorageKey(selection))
+      || localStorage.getItem("wsActiveThreadId");
     if (savedThread && wsThreads.some(t => t.id === savedThread)) {
       workspaceOpenThread(savedThread);
     } else {
@@ -2108,7 +2193,9 @@ async function workspaceStartWorkflowConversation(title = "") {
 
 async function workspaceOpenThread(id) {
   wsActiveThreadId = id;
-  if (workspaceSelection().type === "workflow") wsActiveWorkflowConversationId = id;
+  const selection = workspaceSelection();
+  if (selection.type === "workflow") wsActiveWorkflowConversationId = id;
+  localStorage.setItem(workspaceThreadStorageKey(selection), id);
   localStorage.setItem("wsActiveThreadId", id);
   workspaceRenderThreadList();
   workspaceLoadMessages(id);
@@ -2123,6 +2210,7 @@ async function workspaceDeleteThread(id) {
     if (wsActiveThreadId === id) {
       wsActiveThreadId = null;
       if (workspaceSelection().type === "workflow") wsActiveWorkflowConversationId = null;
+      localStorage.removeItem(workspaceThreadStorageKey());
       localStorage.removeItem("wsActiveThreadId");
       workspaceShowPlaceholder();
     }
@@ -2132,10 +2220,12 @@ async function workspaceDeleteThread(id) {
 window.workspaceDeleteThread = workspaceDeleteThread;
 
 async function workspaceLoadMessages(threadId) {
+  const loadVersion = ++wsMessageLoadVersion;
   try {
     const res = await fetch(`/api/chat/threads/${threadId}`);
     if (!res.ok) throw new Error(await res.text());
     const thread = await res.json();
+    if (loadVersion !== wsMessageLoadVersion) return;
 
     $("#wsPlaceholder").style.display = "none";
     $("#wsMessages").style.display = "block";
@@ -2166,7 +2256,10 @@ function workspaceShowPlaceholder(clearSavedThread = true) {
   $("#wsMessages").innerHTML = "";
   $("#wsInputArea").style.display = "none";
   wsActiveThreadId = null;
-  if (clearSavedThread) localStorage.removeItem("wsActiveThreadId");
+  if (clearSavedThread) {
+    localStorage.removeItem(workspaceThreadStorageKey());
+    if (!workspaceSelection().id) localStorage.removeItem("wsActiveThreadId");
+  }
 }
 
 async function workspaceSend() {
@@ -2180,8 +2273,10 @@ async function workspaceSend() {
   if (!wsActiveThreadId) { toast("请先选择或新建一个对话", "error"); return; }
 
   wsStreaming = true;
+  const maxAgentIterations = currentAgentIterations();
   $("#wsStopButton").style.display = "";
   $("#wsConversationSelect").disabled = true;
+  $("#wsAgentIterations").disabled = true;
   $("#wsInput").value = "";
   $("#wsInput").disabled = true;
 
@@ -2303,7 +2398,7 @@ async function workspaceSend() {
         "Content-Type": "application/json",
         "X-Permission-Mode": wsPermissionMode,
       },
-      body: JSON.stringify({ content, permission_mode: wsPermissionMode }),
+      body: JSON.stringify({ content, permission_mode: wsPermissionMode, max_agent_iterations: maxAgentIterations }),
     });
 
     if (!res.ok) {
@@ -2381,6 +2476,7 @@ async function workspaceSend() {
   wsStreaming = false;
   $("#wsStopButton").style.display = "none";
   $("#wsConversationSelect").disabled = false;
+  $("#wsAgentIterations").disabled = false;
   $("#wsInput").disabled = false;
   $("#wsInput").focus();
 
@@ -2403,6 +2499,7 @@ async function workspaceRunWorkflow(content) {
   const selection = workspaceSelection();
   const workflow = _wsWorkflows.find(item => item.id === selection.id);
   const timeoutSeconds = currentWorkflowTimeout();
+  const maxAgentIterations = currentWorkflowAgentIterations();
   if (!workflow?.validation?.valid) { toast("工作流草稿未通过静态验证", "error"); return; }
   if (!wsActiveWorkflowConversationId) await workspaceStartWorkflowConversation(content.slice(0, 24));
   if (!wsActiveWorkflowConversationId) return;
@@ -2413,6 +2510,7 @@ async function workspaceRunWorkflow(content) {
   $("#wsStopButton").style.display = "";
   $("#wsConversationSelect").disabled = true;
   $("#wsWorkflowTimeout").disabled = true;
+  $("#wsWorkflowAgentIterations").disabled = true;
   $("#wsPlaceholder").style.display = "none";
   $("#wsMessages").style.display = "block";
   $("#wsMessages").innerHTML += workspaceMsgHTML({role:"user", content});
@@ -2499,7 +2597,7 @@ async function workspaceRunWorkflow(content) {
   try {
     const response = await fetch(`/api/workflows/${selection.id}/runs`, {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({thread_id:wsActiveWorkflowConversationId, input:{message:content}, permission_mode:wsPermissionMode, recursion_limit:50, timeout_seconds:timeoutSeconds}),
+      body:JSON.stringify({thread_id:wsActiveWorkflowConversationId, input:{message:content}, permission_mode:wsPermissionMode, recursion_limit:50, timeout_seconds:timeoutSeconds, max_agent_iterations:maxAgentIterations}),
     });
     if (!response.ok) throw new Error((await response.json()).detail || "工作流启动失败");
     wsActiveWorkflowRunId = response.headers.get("X-Workflow-Run-Id");
@@ -2526,6 +2624,7 @@ async function workspaceRunWorkflow(content) {
     $("#wsStopButton").style.display = "none";
     $("#wsConversationSelect").disabled = false;
     $("#wsWorkflowTimeout").disabled = false;
+    $("#wsWorkflowAgentIterations").disabled = false;
     $("#wsInput").focus();
     try {
       const response = await fetch(`/api/workflows/${selection.id}/threads`);

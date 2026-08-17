@@ -303,6 +303,12 @@ index.html — My Agent Next 管理中心
   .visual-inspector input,.visual-inspector select,.visual-inspector textarea { font-size:.75rem; padding:7px 8px; }
   .visual-inspector textarea { min-height:86px; }
   .visual-empty-inspector { color:var(--text-dim); font-size:.75rem; line-height:1.6; }
+  .visual-context { margin:12px 0; border:1px solid var(--border); border-radius:var(--radius-sm); background:#0d1017; }
+  .visual-context summary { padding:8px 10px; cursor:pointer; color:var(--accent); font-size:.75rem; font-weight:700; }
+  .visual-context-body { padding:0 10px 10px; color:var(--text-dim); font-size:.7rem; line-height:1.5; }
+  .visual-context-section { margin-top:9px; }
+  .visual-context-section strong { display:block; color:var(--text); margin-bottom:3px; }
+  .visual-context-code { white-space:pre-wrap; word-break:break-word; padding:6px 7px; border:1px solid var(--border); border-radius:4px; background:#090b10; color:#b9c6e4; }
   @media(max-width:800px){.visual-workflow-shell{grid-template-columns:1fr;height:620px}.visual-inspector{border-left:0;border-top:1px solid var(--border);max-height:230px}}
   .workflow-dependency-row { display:grid; grid-template-columns:minmax(120px, 1fr) minmax(180px, 1.4fr) 34px; gap:8px; margin-bottom:8px; }
   .workflow-validation { margin-top:10px; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-dim); font-size:.78rem; max-height:130px; overflow:auto; }
@@ -1785,6 +1791,43 @@ function autoLayoutVisualGraph(force=false) {
 }
 window.autoLayoutVisualGraph=autoLayoutVisualGraph;
 
+function visualAgentContextHTML(node) {
+  const config = node.config || {};
+  const agent = agents.find(item => item.id === config.agent_id);
+  const template = String(config.message || "");
+  const variables = [...template.matchAll(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g)].map(match => match[1]);
+  const uniqueVariables = [...new Set(variables)];
+  const boundSkills = agent?.skills || [];
+  const skillItems = boundSkills.map(name => {
+    const skill = allSkills.find(item => item.name === name);
+    const description = skill?.description ? " - " + esc(String(skill.description).slice(0, 140)) : "";
+    return "<li>" + esc(skill?.display_name || skill?.name || name) + description + "</li>";
+  }).join("") || "<li>未绑定 Skill</li>";
+  const outgoing = {};
+  visualGraph.edges.forEach(edge => (outgoing[edge.source] ??= []).push(edge.target));
+  const start = visualGraph.nodes.find(item => item.type === "start");
+  const route = [];
+  const visited = new Set();
+  let current = start?.id;
+  while (current && !visited.has(current)) {
+    visited.add(current);
+    const item = visualGraph.nodes.find(candidate => candidate.id === current);
+    if (item) route.push(item.label || item.id);
+    if (current === node.id) break;
+    current = (outgoing[current] || [])[0];
+  }
+  const workflowId = $("#workflowFormId")?.value || "未保存工作流";
+  return [
+    '<details class="visual-context"><summary>输入上下文（只读）</summary><div class="visual-context-body">',
+    '<div class="visual-context-section"><strong>当前任务输入</strong><div class="visual-context-code">' + esc(template || "未配置任务模板") + '</div><div>模板变量：' + esc(uniqueVariables.length ? uniqueVariables.join("、") : "无") + '</div></div>',
+    '<div class="visual-context-section"><strong>Agent 身份</strong><div>名称：' + esc(agent?.name || config.agent_id || "未选择") + '</div><div>Agent ID：' + esc(config.agent_id || "未选择") + '</div><div>Persona：' + esc(String(agent?.persona || "未配置").slice(0, 500)) + '</div></div>',
+    '<div class="visual-context-section"><strong>绑定 Skill（运行时会按任务再选择）</strong><ul>' + skillItems + '</ul></div>',
+    '<div class="visual-context-section"><strong>工作流路线</strong><div>' + esc(workflowId) + ' · 当前节点：' + esc(node.id) + '</div><div class="visual-context-code">' + esc(route.length ? route.join(" → ") : "路线尚未连接") + '</div></div>',
+    '<div class="visual-context-section"><strong>运行时注入</strong><div>当前步骤、完整路线、调用深度、权限模式、子工作流依赖，以及模板渲染后的输入。</div></div>',
+    '<div class="visual-context-section"><strong>不会自动注入</strong><div>普通聊天历史、其他节点的完整工具日志、原始 JSONL 日志；只有被模板引用的工作流状态字段会进入任务输入。</div></div>',
+    '</div></details>',
+  ].join("");
+}
 function renderVisualInspector() {
   const panel=$("#visualWorkflowInspector"); if(!panel)return;
   const node=visualGraph.nodes.find(item=>item.id===visualSelectedNodeId);
@@ -1796,6 +1839,7 @@ function renderVisualInspector() {
   if(node.type==="condition")fields+=`<div class="form-group"><label>上下文字段</label><input value="${esc(c.field||"")}" onchange="updateVisualConfig('field',this.value)"></div><div class="form-group"><label>判断</label><select onchange="updateVisualConfig('operator',this.value)">${[["truthy","有值/为真"],["equals","等于"],["not_equals","不等于"],["contains","包含"]].map(([v,l])=>`<option value="${v}" ${v===c.operator?"selected":""}>${l}</option>`).join("")}</select></div><div class="form-group"><label>比较值</label><input value="${esc(c.value??"")}" onchange="updateVisualConfig('value',this.value)"></div>`;
   if(node.type==="tool")fields+=`<div class="form-group"><label>Tool 名称</label><input value="${esc(c.tool_name||"")}" onchange="updateVisualConfig('tool_name',this.value)"></div>${visualJsonFields(c,"arguments","参数 JSON")}<div class="form-group"><label>输出字段</label><input value="${esc(c.output||"")}" onchange="updateVisualConfig('output',this.value)"></div>`;
   if(node.type==="workflow")fields+=`<div class="form-group"><label>依赖键</label><input value="${esc(c.dependency||"")}" onchange="updateVisualConfig('dependency',this.value)"></div>${visualJsonFields(c,"inputs","输入 JSON")}<div class="form-group"><label>输出字段</label><input value="${esc(c.output||"")}" onchange="updateVisualConfig('output',this.value)"></div>`;
+  if(node.type==="agent")fields+=visualAgentContextHTML(node);
   const removable=!['start','end'].includes(node.type);
   panel.innerHTML=`<h3>${esc(visualNodeTypeLabel(node.type))} 配置</h3>${fields}${removable?'<button type="button" class="btn btn-danger btn-sm" onclick="deleteSelectedVisualItem()">删除节点</button>':""}`;
 }

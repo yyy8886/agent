@@ -37,6 +37,7 @@ from .api_profile_service import ApiProfileService
 from .agent_profile_service import AgentProfileService
 from .chat_api import router as chat_router
 from .marketplace_api import router as marketplace_router
+from .mcp_api import router as mcp_router
 from .workflows.api import create_workflow_router
 
 # 项目根目录 = my_agent_next/
@@ -107,6 +108,7 @@ def set_default(profile_id: str):
 # ── 挂载对话路由 ────────────────────────────────────────────────────────────
 app.include_router(chat_router)
 app.include_router(marketplace_router)
+app.include_router(mcp_router)
 app.include_router(create_workflow_router())
 
 # ── Agent 管理 ──────────────────────────────────────────────────────────────

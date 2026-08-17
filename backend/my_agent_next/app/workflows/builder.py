@@ -93,6 +93,28 @@ class Workflow:
         self._add_node(name, call, kind="skill")
         return self
 
+    def mcp(
+        self,
+        name: str,
+        *,
+        server: str,
+        tool: str,
+        arguments: Mapping[str, Any],
+        output: str,
+        timeout_seconds: float | None = None,
+    ) -> "Workflow":
+        async def call(state: State, runtime: Runtime[WorkflowRuntime]) -> dict:
+            result = await runtime.context.call_mcp(
+                server,
+                tool,
+                _render_mapping(arguments, state),
+                timeout_seconds=timeout_seconds,
+            )
+            return {**state, output: result}
+
+        self._add_node(name, call, kind="mcp")
+        return self
+
     def workflow(
         self,
         name: str,

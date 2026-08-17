@@ -257,7 +257,15 @@ class ChatService:
                 route.name for route in SkillRouter().select(user_content, agent.skills or [])
             ]
         allowed_tool_names = _tool_names_for_skills(selected_skill_names)
-        model = _build_model(profile, allowed_tool_names=allowed_tool_names)
+        from .mcp_service import McpService
+        mcp_tools = await McpService().tools_for_agent(agent_id) if agent else {}
+        if mcp_tools:
+            messages.insert(-1, SystemMessage(content=_mcp_tool_catalog(mcp_tools)))
+        model = _build_model(
+            profile,
+            allowed_tool_names=allowed_tool_names,
+            extra_tools=list(mcp_tools.values()) if allowed_tool_names is None else [],
+        )
         skill_directories_before = (
             _indexed_skill_directories()
             if "skill-creator" in selected_skill_names else set()
@@ -324,6 +332,10 @@ class ChatService:
             return "\n\n".join(sections)
 
         async def execute_tool(tool_name: str, tool_args: dict, call_id: str) -> str:
+            if tool_name in mcp_tools:
+                from .mcp_service import invoke_mcp_tool
+                return await invoke_mcp_tool(mcp_tools[tool_name], tool_args)
+
             if tool_name in {"discover_skills", "load_skill"}:
                 from .tools.skill_discovery import (
                     discover_authorized_skills,
@@ -611,12 +623,30 @@ def _is_valid_review_response(text: str) -> bool:
     )
 
 
-def _build_model(profile, allowed_tool_names: set[str] | None = None):
+def _mcp_tool_catalog(tools: dict[str, object]) -> str:
+    lines = [
+        f"- {name}: {getattr(tool, 'description', '')}"
+        for name, tool in sorted(tools.items())
+    ]
+    return (
+        "## Authorized MCP tools\n"
+        "These tools come from MCP Servers bound to this Agent. Tool names include "
+        "the server ID prefix. Call them only when needed and use their real results.\n"
+        + "\n".join(lines)
+    )
+
+
+def _build_model(
+    profile,
+    allowed_tool_names: set[str] | None = None,
+    extra_tools: list | None = None,
+):
     """根据 ApiProfile 创建 LangChain ChatModel，并绑定工具。"""
     tools = (
         [tool for tool in ALL_TOOLS if tool.name in allowed_tool_names]
         if allowed_tool_names is not None else ALL_TOOLS
     )
+    tools = [*tools, *(extra_tools or [])]
     common = {"model": profile.model, "temperature": profile.temperature}
     if profile.provider == "deepseek":
         from langchain_deepseek import ChatDeepSeek

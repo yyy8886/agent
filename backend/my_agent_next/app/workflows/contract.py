@@ -148,6 +148,15 @@ class _WorkflowGateway(Protocol):
         timeout_seconds: float | None = None,
     ) -> WorkflowPayload: ...
 
+    async def call_mcp(
+        self,
+        server_id: str,
+        tool_name: str,
+        arguments: WorkflowPayload,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> WorkflowPayload: ...
+
     async def call_workflow(
         self,
         dependency_key: str,
@@ -241,6 +250,25 @@ class WorkflowRuntime:
             timeout_seconds=timeout_seconds,
         )
         return normalize_workflow_payload(result, label="skill output")
+
+    async def call_mcp(
+        self,
+        server_id: str,
+        tool_name: str,
+        arguments: WorkflowPayload,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> WorkflowPayload:
+        _validate_identifier(server_id, "server_id")
+        _validate_identifier(tool_name, "tool_name")
+        _validate_timeout(timeout_seconds)
+        result = await _get_gateway().call_mcp(
+            server_id,
+            tool_name,
+            normalize_workflow_payload(arguments, label="MCP arguments"),
+            timeout_seconds=timeout_seconds,
+        )
+        return normalize_workflow_payload(result, label="MCP output")
 
     async def call_workflow(
         self,

@@ -287,6 +287,7 @@ index.html — My Agent Next 管理中心
   .visual-node[data-type="skill"] { border-left-color:#39b77a; }
   .visual-node[data-type="condition"] { border-left-color:#e3a62f; }
   .visual-node[data-type="tool"] { border-left-color:#ad7be9; }
+  .visual-node[data-type="mcp"] { border-left-color:#35b6c8; }
   .visual-node[data-type="workflow"] { border-left-color:#e66b8c; }
   .visual-node[data-type="start"],.visual-node[data-type="end"] { width:116px; min-height:54px; border-left-color:#8b93a6; }
   .visual-node-type { color:var(--text-dim); font-size:.65rem; text-transform:uppercase; }
@@ -436,6 +437,7 @@ index.html — My Agent Next 管理中心
       <button class="btn btn-primary" id="btnNewProfile" onclick="openAddModal()">+ 新建 API 配置</button>
       <button class="btn btn-primary" id="btnNewAgent" onclick="openAgentAddModal()" style="display:none">+ 新建 Agent</button>
       <button class="btn btn-primary" id="btnNewThread" onclick="workspaceNewThread()" style="display:none">+ 新建对话</button>
+      <button class="btn btn-primary" id="btnNewMcp" onclick="openMcpModal()" style="display:none">+ 添加 MCP 服务</button>
     </div>
   </header>
 
@@ -445,6 +447,7 @@ index.html — My Agent Next 管理中心
     <button class="tab" onclick="switchTab('agents')">🤖 Agent 管理</button>
     <button class="tab" onclick="switchTab('workspace')">💬 工作台</button>
     <button class="tab" onclick="switchTab('marketplace')">🛒 Skill 市场</button>
+    <button class="tab" onclick="switchTab('mcp')">MCP 服务</button>
   </div>
 
   <!-- ── API 配置页 ─────────────────────────────────────────────────────────── -->
@@ -814,6 +817,32 @@ graph.add_conditional_edges(
   </div>
 </div>
 
+<!-- MCP 服务 -->
+<div id="tab-mcp" class="tab-content">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <div><h3 style="font-size:.95rem">MCP Servers</h3><p style="color:var(--text-dim);font-size:.78rem;margin-top:3px">连接、发现并测试 Tool、Resource 与 Prompt。</p></div>
+      <button class="btn btn-ghost btn-sm" onclick="loadMcpServers()">重新加载</button>
+    </div>
+    <div id="mcpServers" class="cards-grid"></div>
+    <div id="mcpEmpty" class="empty-state hidden"><h3>还没有 MCP 服务</h3><p>添加本地 stdio Server 后进行连接测试。</p></div>
+  </div>
+
+<div class="modal-overlay hidden" id="modalMcp">
+    <div class="modal" style="max-width:650px">
+      <h2 id="mcpModalTitle">添加 MCP 服务</h2>
+      <form id="mcpForm" onsubmit="saveMcpServer(event)">
+        <div class="form-row"><div class="form-group"><label>ID</label><input id="mcpFormId" required placeholder="l6_time"></div><div class="form-group"><label>名称</label><input id="mcpFormName" required placeholder="L6 Time Server"></div></div>
+        <div class="form-row"><div class="form-group"><label>传输方式</label><select id="mcpFormTransport"><option value="stdio">stdio</option></select></div><div class="form-group"><label>启动命令</label><input id="mcpFormCommand" required value="python"></div></div>
+        <div class="form-group"><label>参数 JSON</label><textarea id="mcpFormArgs" rows="3">[]</textarea></div>
+        <div class="form-group"><label>工作目录（相对 backend）</label><input id="mcpFormCwd" value="."></div>
+        <div class="form-group"><label>环境变量名（每行一个，不保存真实值）</label><textarea id="mcpFormEnv" rows="2"></textarea></div>
+        <div class="form-group"><label>绑定 Agent</label><div id="mcpAgentBindings" class="skill-checkboxes"></div></div>
+        <label class="check-label"><input type="checkbox" id="mcpFormEnabled" checked> 启用</label>
+        <div class="form-actions"><button type="button" class="btn btn-ghost" onclick="closeMcpModal()">取消</button><button class="btn btn-primary" type="submit">保存</button></div>
+      </form>
+    </div>
+</div>
+
 <div class="modal-overlay hidden" id="modalWorkflow">
   <div class="modal workflow-modal">
     <h2 id="workflowModalTitle">新建工作流草稿</h2>
@@ -839,6 +868,7 @@ graph.add_conditional_edges(
           <button type="button" class="btn btn-ghost btn-sm" onclick="addVisualNode('skill')">＋ Skill</button>
           <button type="button" class="btn btn-ghost btn-sm" onclick="addVisualNode('condition')">＋ 条件</button>
           <button type="button" class="btn btn-ghost btn-sm" onclick="addVisualNode('tool')">＋ Tool</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="addVisualNode('mcp')">＋ MCP</button>
           <button type="button" class="btn btn-ghost btn-sm" onclick="addVisualNode('workflow')">＋ 子工作流</button>
           <span class="spacer"></span>
           <button type="button" class="btn btn-ghost btn-sm" onclick="autoLayoutVisualGraph(true)">自动排列</button>
@@ -878,7 +908,7 @@ function esc(s) { return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt
 // 标签页切换
 // ═════════════════════════════════════════════════════════════════════════════
 let currentTab = "profiles";
-const TAB_INDEX = { profiles: 0, agents: 1, workspace: 2, marketplace: 3 };
+const TAB_INDEX = { profiles: 0, agents: 1, workspace: 2, marketplace: 3, mcp: 4 };
 function switchTab(tab) {
   currentTab = tab;
   document.querySelectorAll(".tab").forEach((t,i) => t.classList.toggle("active", i === TAB_INDEX[tab]));
@@ -887,11 +917,13 @@ function switchTab(tab) {
   document.getElementById("btnNewProfile").style.display = tab==="profiles"?"":"none";
   document.getElementById("btnNewAgent").style.display = tab==="agents"?"":"none";
   document.getElementById("btnNewThread").style.display = tab==="workspace"?"":"none";
+  document.getElementById("btnNewMcp").style.display = tab==="mcp"?"":"none";
   // An active SSE request keeps updating the existing workspace DOM while the
   // tab is hidden. Reloading from the database here would erase that draft
   // because assistant messages are persisted only after generation finishes.
   if (tab === "workspace" && !wsStreaming) workspaceInit();
   if (tab === "marketplace") { loadInstalledSkills(); if (!mpHasSearched) mpSearch(""); }
+  if (tab === "mcp") loadMcpServers();
 }
 window.switchTab = switchTab;
 
@@ -1333,6 +1365,57 @@ document.getElementById("modalAskUser").addEventListener("click", function(e) {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
+// ============== MCP 服务 ==============
+let mcpServers = [];
+let mcpInspections = {};
+
+async function loadMcpServers() {
+  const grid = $("#mcpServers"), empty = $("#mcpEmpty");
+  grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:30px;color:var(--text-dim)">加载 MCP 服务…</div>';
+  try {
+    const response = await fetch("/api/mcp/servers");
+    if (!response.ok) throw new Error((await response.json()).detail || "加载失败");
+    mcpServers = await response.json();
+    renderMcpServers();
+  } catch (error) {
+    grid.innerHTML = `<div class="empty-state"><h3>加载失败</h3><p>${esc(error.message)}</p></div>`;
+  }
+}
+
+function renderMcpServers() {
+  const grid = $("#mcpServers"), empty = $("#mcpEmpty");
+  empty.classList.toggle("hidden", mcpServers.length > 0);
+  grid.innerHTML = mcpServers.map(server => {
+    const report = mcpInspections[server.id];
+    const bindings = (server.agent_ids || []).map(id => agents.find(a=>a.id===id)?.name || id).join("、") || "未绑定 Agent";
+    const status = report ? `已连接 · ${report.latency_ms} ms · ${report.tools.length} Tools` : "尚未检查";
+    return `<div class="card" style="grid-column:1/-1">
+      <div class="card-header"><div><div class="card-title">${esc(server.name)}</div><div class="card-subtitle">${esc(server.id)} · ${esc(server.transport)} · ${server.enabled?"已启用":"已停用"}</div></div><span class="badge">${esc(status)}</span></div>
+      <div style="font-size:.78rem;color:var(--text-dim);margin:8px 0">${esc(server.command)} ${esc((server.args||[]).join(" "))}<br>${esc(bindings)}</div>
+      <div class="card-actions"><button class="btn btn-primary btn-sm" onclick="inspectMcpServer('${esc(server.id)}')">连接检查</button><button class="btn btn-ghost btn-sm" onclick="openMcpModal('${esc(server.id)}')">编辑</button><button class="btn btn-danger btn-sm" onclick="deleteMcpServer('${esc(server.id)}')">删除</button></div>
+      <div id="mcpInspect-${esc(server.id)}" style="margin-top:12px">${report?mcpInspectionHtml(server.id,report):""}</div>
+    </div>`;
+  }).join("");
+}
+
+function mcpInspectionHtml(serverId, report) {
+  const tools=(report.tools||[]).map(tool=>`<details class="visual-context"><summary>Tool · ${esc(tool.name)}</summary><div class="visual-context-body"><div class="visual-context-code">${esc(JSON.stringify(tool.inputSchema||{},null,2))}</div><textarea id="mcpToolArgs-${esc(serverId)}-${esc(tool.name)}" rows="2">{}</textarea><button class="btn btn-primary btn-sm" onclick="callMcpTool('${esc(serverId)}','${esc(tool.name)}')">Run Tool</button><pre id="mcpToolResult-${esc(serverId)}-${esc(tool.name)}" class="visual-context-code"></pre></div></details>`).join("");
+  const resources=(report.resources||[]).map(item=>`<details class="visual-context"><summary>Resource · ${esc(item.name)}</summary><div class="visual-context-body"><div>${esc(item.uri)}</div><button class="btn btn-primary btn-sm" onclick="readMcpResource('${esc(serverId)}','${esc(item.uri)}',this)">Read Resource</button><pre class="visual-context-code"></pre></div></details>`).join("");
+  const prompts=(report.prompts||[]).map(item=>{const args=Object.fromEntries((item.arguments||[]).map(arg=>[arg.name,""]));const required=(item.arguments||[]).filter(arg=>arg.required).map(arg=>arg.name);return `<details class="visual-context"><summary>Prompt · ${esc(item.name)}</summary><div class="visual-context-body"><div style="margin-bottom:6px">${esc(item.description||"")}${required.length?`<br><span style="color:var(--warning)">必填参数：${esc(required.join(", "))}</span>`:""}</div><textarea id="mcpPromptArgs-${esc(serverId)}-${esc(item.name)}" rows="2">${esc(JSON.stringify(args,null,2))}</textarea><button class="btn btn-primary btn-sm" onclick="getMcpPrompt('${esc(serverId)}','${esc(item.name)}')">Get Prompt</button><pre id="mcpPromptResult-${esc(serverId)}-${esc(item.name)}" class="visual-context-code"></pre></div></details>`;}).join("");
+  return `<div style="font-size:.78rem;color:var(--text-dim);margin-bottom:8px">协议 ${esc(report.server_info?.protocolVersion||"")} · ${esc(report.server_info?.serverInfo?.name||"")}</div>${tools}${resources}${prompts}`;
+}
+
+async function inspectMcpServer(id){const box=$(`#mcpInspect-${id}`);box.textContent="正在启动并检查…";try{const r=await fetch(`/api/mcp/servers/${id}/inspect`,{method:"POST"});const data=await r.json();if(!r.ok)throw new Error(data.detail||"检查失败");mcpInspections[id]=data;renderMcpServers();toast("MCP 检查成功","success");}catch(e){box.innerHTML=`<div class="badge badge-red">${esc(e.message)}</div>`;}}
+async function callMcpTool(server,tool){const out=$(`#mcpToolResult-${server}-${tool}`);try{const args=JSON.parse($(`#mcpToolArgs-${server}-${tool}`).value||"{}");const r=await fetch(`/api/mcp/servers/${server}/tools/${tool}/call`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({arguments:args})});const data=await r.json();if(!r.ok)throw new Error(data.detail);out.textContent=JSON.stringify(data,null,2);}catch(e){out.textContent=e.message;}}
+async function readMcpResource(server,uri,button){const out=button.nextElementSibling;try{const r=await fetch(`/api/mcp/servers/${server}/resources/read`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({uri})});const data=await r.json();if(!r.ok)throw new Error(data.detail);out.textContent=JSON.stringify(data,null,2);}catch(e){out.textContent=e.message;}}
+async function getMcpPrompt(server,name){const out=$(`#mcpPromptResult-${server}-${name}`);try{const args=JSON.parse($(`#mcpPromptArgs-${server}-${name}`).value||"{}");const r=await fetch(`/api/mcp/servers/${server}/prompts/${name}/get`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({arguments:args})});const data=await r.json();if(!r.ok)throw new Error(data.detail);out.textContent=JSON.stringify(data,null,2);}catch(e){out.textContent=e.message;}}
+
+function openMcpModal(id="") {const server=mcpServers.find(item=>item.id===id);$("#mcpModalTitle").textContent=server?"编辑 MCP 服务":"添加 MCP 服务";$("#mcpFormId").value=server?.id||"";$("#mcpFormId").disabled=!!server;$("#mcpFormName").value=server?.name||"";$("#mcpFormCommand").value=server?.command||"python";$("#mcpFormArgs").value=JSON.stringify(server?.args||[],null,2);$("#mcpFormCwd").value=server?.cwd||".";$("#mcpFormEnv").value=(server?.env_names||[]).join("\n");$("#mcpFormEnabled").checked=server?.enabled!==false;$("#mcpAgentBindings").innerHTML=agents.map(a=>`<label class="check-label"><input type="checkbox" value="${esc(a.id)}" ${(server?.agent_ids||[]).includes(a.id)?"checked":""}> ${esc(a.name)}</label>`).join("");$("#modalMcp").classList.remove("hidden");}
+function closeMcpModal(){$("#modalMcp").classList.add("hidden");}
+async function saveMcpServer(event){event.preventDefault();try{const payload={id:$("#mcpFormId").value,name:$("#mcpFormName").value,transport:"stdio",command:$("#mcpFormCommand").value,args:JSON.parse($("#mcpFormArgs").value||"[]"),cwd:$("#mcpFormCwd").value,env_names:$("#mcpFormEnv").value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean),agent_ids:[...$("#mcpAgentBindings").querySelectorAll("input:checked")].map(x=>x.value),enabled:$("#mcpFormEnabled").checked};const r=await fetch("/api/mcp/servers",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});const data=await r.json();if(!r.ok)throw new Error(data.detail);closeMcpModal();await loadMcpServers();toast("MCP 服务已保存","success");}catch(e){toast(e.message,"error");}}
+async function deleteMcpServer(id){if(!confirm(`删除 MCP 服务 ${id}？`))return;const r=await fetch(`/api/mcp/servers/${id}`,{method:"DELETE"});if(r.ok){delete mcpInspections[id];loadMcpServers();}else toast((await r.json()).detail||"删除失败","error");}
+window.loadMcpServers=loadMcpServers;window.openMcpModal=openMcpModal;window.closeMcpModal=closeMcpModal;window.saveMcpServer=saveMcpServer;window.inspectMcpServer=inspectMcpServer;window.callMcpTool=callMcpTool;window.readMcpResource=readMcpResource;window.getMcpPrompt=getMcpPrompt;window.deleteMcpServer=deleteMcpServer;
+
 // ============== Skill 市场 ==============
 // ═════════════════════════════════════════════════════════════════════════════
 let mpHasSearched = false;
@@ -1650,7 +1733,7 @@ function setWorkflowEditorMode(mode) {
 window.setWorkflowEditorMode = setWorkflowEditorMode;
 
 function visualNodeTypeLabel(type) {
-  return {start:"开始",end:"结束",agent:"Agent",skill:"Skill",condition:"条件",tool:"Tool",workflow:"子工作流"}[type] || type;
+  return {start:"开始",end:"结束",agent:"Agent",skill:"Skill",condition:"条件",tool:"Tool",mcp:"MCP",workflow:"子工作流"}[type] || type;
 }
 
 function visualNodeDetail(node) {
@@ -1659,6 +1742,7 @@ function visualNodeDetail(node) {
   if (node.type === "skill") return c.skill_name || "选择 Skill";
   if (node.type === "condition") return `${c.field || "字段"} · ${c.operator || "truthy"}`;
   if (node.type === "tool") return c.tool_name || "填写 Tool";
+  if (node.type === "mcp") return `${c.server_id || "选择服务"} · ${c.tool_name || "选择 Tool"}`;
   if (node.type === "workflow") return c.dependency || "选择依赖";
   return "";
 }
@@ -1774,6 +1858,7 @@ function addVisualNode(type) {
   if(type==="skill")config={skill_name:allSkills[0]?.name||"",arguments:{message:"{message}"},output:`${id}_result`};
   if(type==="condition")config={field:"answer",operator:"truthy",value:""};
   if(type==="tool")config={tool_name:"",arguments:{message:"{message}"},output:`${id}_result`};
+  if(type==="mcp")config={server_id:mcpServers[0]?.id||"",tool_name:"",arguments:{},output:`${id}_result`};
   if(type==="workflow")config={dependency:"",inputs:{message:"{message}"},output:`${id}_result`};
   visualGraph.nodes.push({id,type,label:visualNodeTypeLabel(type),position:{x:300,y:260},manual_position:false,config});
   if(visualSelectedNodeId){visualConnection={source:visualSelectedNodeId};finishVisualConnection(id);}else{autoLayoutVisualGraph(false);selectVisualNode(id);}
@@ -1839,6 +1924,7 @@ function renderVisualInspector() {
   if(node.type==="skill")fields+=`<div class="form-group"><label>Skill</label><select onchange="updateVisualConfig('skill_name',this.value)"><option value="">选择 Skill</option>${allSkills.map(s=>`<option value="${esc(s.name)}" ${s.name===c.skill_name?"selected":""}>${esc(s.display_name||s.name)}</option>`).join("")}</select></div>${visualJsonFields(c,"arguments","参数 JSON")}<div class="form-group"><label>输出字段</label><input value="${esc(c.output||"")}" onchange="updateVisualConfig('output',this.value)"></div>`;
   if(node.type==="condition")fields+=`<div class="form-group"><label>上下文字段</label><input value="${esc(c.field||"")}" onchange="updateVisualConfig('field',this.value)"></div><div class="form-group"><label>判断</label><select onchange="updateVisualConfig('operator',this.value)">${[["truthy","有值/为真"],["equals","等于"],["not_equals","不等于"],["contains","包含"]].map(([v,l])=>`<option value="${v}" ${v===c.operator?"selected":""}>${l}</option>`).join("")}</select></div><div class="form-group"><label>比较值</label><input value="${esc(c.value??"")}" onchange="updateVisualConfig('value',this.value)"></div>`;
   if(node.type==="tool")fields+=`<div class="form-group"><label>Tool 名称</label><input value="${esc(c.tool_name||"")}" onchange="updateVisualConfig('tool_name',this.value)"></div>${visualJsonFields(c,"arguments","参数 JSON")}<div class="form-group"><label>输出字段</label><input value="${esc(c.output||"")}" onchange="updateVisualConfig('output',this.value)"></div>`;
+  if(node.type==="mcp")fields+=`<div class="form-group"><label>MCP Server</label><select onchange="updateVisualConfig('server_id',this.value)"><option value="">选择服务</option>${mcpServers.filter(s=>s.enabled).map(s=>`<option value="${esc(s.id)}" ${s.id===c.server_id?"selected":""}>${esc(s.name)}</option>`).join("")}</select></div><div class="form-group"><label>MCP Tool 名称</label><input value="${esc(c.tool_name||"")}" placeholder="get_current_time" onchange="updateVisualConfig('tool_name',this.value)"></div>${visualJsonFields(c,"arguments","参数 JSON")}<div class="form-group"><label>输出字段</label><input value="${esc(c.output||"")}" onchange="updateVisualConfig('output',this.value)"></div>`;
   if(node.type==="workflow")fields+=`<div class="form-group"><label>依赖键</label><input value="${esc(c.dependency||"")}" onchange="updateVisualConfig('dependency',this.value)"></div>${visualJsonFields(c,"inputs","输入 JSON")}<div class="form-group"><label>输出字段</label><input value="${esc(c.output||"")}" onchange="updateVisualConfig('output',this.value)"></div>`;
   if(node.type==="agent")fields+=visualAgentContextHTML(node);
   const removable=!['start','end'].includes(node.type);
@@ -1852,6 +1938,7 @@ function deleteSelectedVisualItem(){if(visualSelectedEdgeId){visualGraph.edges=v
 window.updateVisualNodeField=updateVisualNodeField;window.updateVisualConfig=updateVisualConfig;window.updateVisualJsonConfig=updateVisualJsonConfig;window.deleteSelectedVisualItem=deleteSelectedVisualItem;
 
 async function openWorkflowModal(workflowId = "") {
+  if (!mcpServers.length) await loadMcpServers();
   $("#workflowForm").reset();
   $("#workflowDependencies").innerHTML = "";
   renderWorkflowValidation(null);
@@ -2539,7 +2626,7 @@ const WORKFLOW_EVENT_LABELS = {
   workflow_started:"工作流开始", node_started:"节点开始", node_output:"节点输出",
   node_finished:"节点完成", agent_started:"Agent 输入", agent_token:"Agent 实时输出", agent_tool_call:"Agent 工具调用",
   agent_tool_result:"Agent 工具输出", agent_skill_loaded:"Agent 加载 Skill", agent_output:"Agent 输出", tool_started:"工具输入",
-  tool_output:"工具输出", skill_started:"Skill 输入", skill_output:"Skill 输出",
+  tool_output:"工具输出", skill_started:"Skill 输入", skill_output:"Skill 输出", mcp_started:"MCP 输入", mcp_output:"MCP 输出",
   child_workflow_started:"子工作流开始", child_workflow_output:"子工作流输出",
   workflow_output:"工作流输出", run_output:"最终输出", run_cancelled:"已停止",
   run_timeout:"运行超时", run_error:"运行错误", custom:"自定义事件",
@@ -2633,7 +2720,7 @@ async function workspaceRunWorkflow(content) {
     }
     const item = document.createElement("div");
     const isError = ["run_error", "run_timeout", "run_cancelled"].includes(event.event);
-    const isOutput = ["node_output", "agent_output", "skill_output", "tool_output", "child_workflow_output", "workflow_output", "run_output"].includes(event.event);
+    const isOutput = ["node_output", "agent_output", "skill_output", "tool_output", "mcp_output", "child_workflow_output", "workflow_output", "run_output"].includes(event.event);
     item.className = `workflow-trace-item${isError ? " error" : ""}${isOutput ? " output" : ""}`;
     const data = event.data || {};
     let detail = "";

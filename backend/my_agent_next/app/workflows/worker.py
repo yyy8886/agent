@@ -149,7 +149,17 @@ class WorkerGateway:
             permission_mode=self.spec.permission_mode,
             dependency_keys=tuple(self.spec.dependencies.get(self.workflow_id, {})),
         )))
-        model = _build_model(profile, allowed_tool_names=_tool_names_for_skills(selected_skill_names))
+        from ..mcp_service import McpService
+        mcp_tools = await McpService().tools_for_agent(agent_id)
+        if mcp_tools:
+            from ..chat_service import _mcp_tool_catalog
+            messages.append(SystemMessage(content=_mcp_tool_catalog(mcp_tools)))
+        allowed_tool_names = _tool_names_for_skills(selected_skill_names)
+        model = _build_model(
+            profile,
+            allowed_tool_names=allowed_tool_names,
+            extra_tools=list(mcp_tools.values()) if allowed_tool_names is None else [],
+        )
         for skill_name in selected_skill_names:
             self.emitter.emit(
                 "agent_skill_loaded",
@@ -191,6 +201,10 @@ class WorkerGateway:
                 )
 
         async def execute_tool(name: str, arguments: dict, call_id: str) -> str:
+            if name in mcp_tools:
+                from ..mcp_service import invoke_mcp_tool
+                return await invoke_mcp_tool(mcp_tools[name], arguments)
+
             if name in {"discover_skills", "load_skill"}:
                 from ..tools.skill_discovery import (
                     discover_authorized_skills,
@@ -257,6 +271,39 @@ class WorkerGateway:
         self.emitter.emit("skill_started", {"skill": skill_name, "arguments": arguments}, run_id=self.run_id, parent_run_id=self.parent_run_id)
         output = await _with_timeout(asyncio.to_thread(_execute_skill, skill_name, arguments), timeout_seconds)
         self.emitter.emit("skill_output", {"skill": skill_name, "output": output}, run_id=self.run_id, parent_run_id=self.parent_run_id)
+        return output
+
+    async def call_mcp(
+        self,
+        server_id: str,
+        tool_name: str,
+        arguments: dict,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> dict:
+        self.raise_if_cancelled()
+        self.emitter.emit(
+            "mcp_started",
+            {"server_id": server_id, "tool": tool_name, "arguments": arguments},
+            run_id=self.run_id,
+            parent_run_id=self.parent_run_id,
+        )
+        from ..mcp_service import McpService
+        result = await _with_timeout(
+            McpService().call_tool(server_id, tool_name, arguments),
+            timeout_seconds,
+        )
+        output = {
+            "text": result.get("text", ""),
+            "result": result.get("result"),
+            "latency_ms": result.get("latency_ms"),
+        }
+        self.emitter.emit(
+            "mcp_output",
+            {"server_id": server_id, "tool": tool_name, "output": output},
+            run_id=self.run_id,
+            parent_run_id=self.parent_run_id,
+        )
         return output
 
     async def call_workflow(self, dependency_key: str, inputs: dict, *, timeout_seconds: float | None = None) -> dict:

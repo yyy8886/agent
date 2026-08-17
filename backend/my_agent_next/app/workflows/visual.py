@@ -12,7 +12,7 @@ from .contract import WORKFLOW_IDENTIFIER_PATTERN
 
 NODE_ID = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 FIELD_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
-NODE_TYPES = {"start", "end", "agent", "skill", "tool", "workflow", "condition"}
+NODE_TYPES = {"start", "end", "agent", "skill", "tool", "mcp", "workflow", "condition"}
 CONDITION_OPERATORS = {"equals", "not_equals", "contains", "truthy"}
 MAX_NODES = 100
 MAX_EDGES = 200
@@ -142,6 +142,19 @@ def _normalize_config(node_id: str, node_type: str, config: dict) -> dict:
             raise ValueError(f"节点 {node_id} 的参数必须是对象。")
         _validate_field(output, node_id)
         return {key: capability, "arguments": arguments, "output": output}
+    if node_type == "mcp":
+        server_id = str(config.get("server_id", "")).strip()
+        tool_name = str(config.get("tool_name", "")).strip()
+        output = str(config.get("output", f"{node_id}_result")).strip()
+        arguments = config.get("arguments") or {}
+        if not WORKFLOW_IDENTIFIER_PATTERN.fullmatch(server_id):
+            raise ValueError(f"MCP node {node_id} is missing a valid server_id.")
+        if not WORKFLOW_IDENTIFIER_PATTERN.fullmatch(tool_name):
+            raise ValueError(f"MCP node {node_id} is missing a valid tool_name.")
+        if not isinstance(arguments, dict):
+            raise ValueError(f"MCP node {node_id} arguments must be an object.")
+        _validate_field(output, node_id)
+        return {"server_id": server_id, "tool_name": tool_name, "arguments": arguments, "output": output}
     if node_type == "workflow":
         dependency = str(config.get("dependency", "")).strip()
         output = str(config.get("output", f"{node_id}_result")).strip()
@@ -228,6 +241,12 @@ def _generate_source(graph: dict, nodes: dict, outgoing: dict) -> str:
             lines.append(
                 f"    flow.tool({node_id!r}, tool={config['tool_name']!r}, "
                 f"arguments={config['arguments']!r}, output={config['output']!r})"
+            )
+        elif node_type == "mcp":
+            lines.append(
+                f"    flow.mcp({node_id!r}, server={config['server_id']!r}, "
+                f"tool={config['tool_name']!r}, arguments={config['arguments']!r}, "
+                f"output={config['output']!r})"
             )
         elif node_type == "workflow":
             lines.append(

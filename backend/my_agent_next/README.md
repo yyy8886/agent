@@ -17,7 +17,7 @@
 - 工作流在独立 Worker 进程中运行，支持超时、递归限制、软取消和强制终止。
 - 工作流对话及最终回答持久化，刷新页面后可以继续查看。
 
-尚未完成的方向包括低权限或容器级 Worker 隔离、工作流版本发布与回滚、运行轨迹持久化、可视化工作流编辑器、LlamaIndex 知识库和 Electron 桌面端。
+尚未完成的方向包括低权限或容器级 Worker 隔离、工作流版本发布与回滚、运行轨迹持久化、LlamaIndex 知识库和内置 Python Runtime 的正式桌面安装包。
 
 ## 技术栈
 
@@ -249,6 +249,29 @@ npm start
 启动器会在 Windows 优先选择 `backend/.venv/Scripts/python.exe`，在 Linux 优先选择 `backend/.venv-linux/bin/python`，也可以通过 `MY_AGENT_PYTHON` 指定解释器。它会选择随机的本机端口、启动 FastAPI、等待 `/api/health` 就绪后显示窗口，并在应用退出时回收整个后端进程树。
 
 桌面页面启用 `contextIsolation` 和 Chromium 沙箱，关闭 `nodeIntegration`。数据库、`.env`、用户 Skill 和工作流属于可写持久化数据，不进入 Electron 的 `app.asar`。当前第一阶段打包仍要求目标机器具备兼容的 Python 环境；内置 Python Runtime 属于下一阶段。
+
+### Linux / Ubuntu
+
+在 Ubuntu 或 WSL 中使用独立的 Linux 虚拟环境，不要复用 Windows 的 `.venv`：
+
+```bash
+cd backend
+sudo apt update
+sudo apt install -y python3.12-venv
+python3 -m venv .venv-linux
+source .venv-linux/bin/activate
+python -m pip install -e .
+./scripts/linux_smoke_test.sh
+```
+
+冒烟脚本会在 `127.0.0.1:19846` 启动临时服务、检查 `/api/health`，然后自动退出并清理进程。正式运行可以使用：
+
+```bash
+source .venv-linux/bin/activate
+python -m uvicorn my_agent_next.app.web_server:app --host 127.0.0.1 --port 19845
+```
+
+Linux 依赖由 `pyproject.toml` 声明，包含 FastAPI、Uvicorn、`html2text` 和图片上传所需的 `python-multipart`。WSL 的 `localhost` 代理提示只影响外网下载，不影响本机 FastAPI 监听；生产 Linux 部署应使用 systemd、Docker 或反向代理配置。
 
 Windows PowerShell：
 

@@ -23,6 +23,14 @@ class WorkflowUiTests(unittest.TestCase):
         self.assertIn("wsMessageLoadVersion", source)
         self.assertIn("if (loadVersion !== wsMessageLoadVersion) return;", source)
 
+    def test_live_workflow_bubble_is_restored_after_thread_switch(self):
+        source = INDEX_HTML.read_text(encoding="utf-8")
+        self.assertIn("const wsLiveWorkflowRuns = new Map()", source)
+        self.assertIn("wsLiveWorkflowRuns.set(workflowThreadId", source)
+        self.assertIn("wsLiveWorkflowRuns.get(threadId)", source)
+        self.assertIn('$("#wsMessages").appendChild(liveRun.element)', source)
+        self.assertIn("wsLiveWorkflowRuns.delete(workflowThreadId)", source)
+
     def test_workflow_timeout_is_user_configurable_per_workflow(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
         self.assertIn('id="wsWorkflowTimeout"', source)

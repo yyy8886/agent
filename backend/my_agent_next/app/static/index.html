@@ -1576,6 +1576,7 @@ let wsStreaming = false;
 let wsActiveWorkflowRunId = null;
 let wsActiveWorkflowConversationId = null;
 let wsMessageLoadVersion = 0;
+const wsLiveWorkflowRuns = new Map();
 let _wsWorkflows = [];
 
 async function loadWorkspaceWorkflows(preferredId) {
@@ -2235,6 +2236,10 @@ async function workspaceLoadMessages(threadId) {
     $("#wsMessages").innerHTML = msgs.length
       ? msgs.map(m => workspaceMsgHTML(m)).join("")
       : "";
+    const liveRun = wsLiveWorkflowRuns.get(threadId);
+    if (liveRun?.element && !liveRun.element.isConnected) {
+      $("#wsMessages").appendChild(liveRun.element);
+    }
     // 滚动到底部
     $("#wsMessages").scrollTop = $("#wsMessages").scrollHeight;
   } catch(e) { toast("加载消息失败: "+e.message, "error"); }
@@ -2503,6 +2508,7 @@ async function workspaceRunWorkflow(content) {
   if (!workflow?.validation?.valid) { toast("工作流草稿未通过静态验证", "error"); return; }
   if (!wsActiveWorkflowConversationId) await workspaceStartWorkflowConversation(content.slice(0, 24));
   if (!wsActiveWorkflowConversationId) return;
+  const workflowThreadId = wsActiveWorkflowConversationId;
   wsStreaming = true;
   wsActiveWorkflowRunId = null;
   $("#wsInput").value = "";
@@ -2525,6 +2531,11 @@ async function workspaceRunWorkflow(content) {
   const traceBody = trace.querySelector(".workflow-trace-body");
   const traceCount = trace.querySelector(".trace-count");
   const answer = document.querySelector(`#${bubbleId} .ws-text`);
+  const liveBubble = document.getElementById(bubbleId);
+  wsLiveWorkflowRuns.set(workflowThreadId, {
+    element: liveBubble,
+    workflowId: selection.id,
+  });
   let eventCount = 0;
   const activeAgentStreams = new Map();
 
@@ -2618,6 +2629,7 @@ async function workspaceRunWorkflow(content) {
   } catch(error) {
     appendEvent({event:"run_error", data:{message:error.message}});
   } finally {
+    wsLiveWorkflowRuns.delete(workflowThreadId);
     wsStreaming = false;
     wsActiveWorkflowRunId = null;
     $("#wsInput").disabled = false;

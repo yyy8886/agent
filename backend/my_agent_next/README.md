@@ -235,6 +235,20 @@ OPENAI_API_KEY=your-key
 
 ## 启动
 
+### Electron 桌面工作台
+
+桌面版采用“Electron 内置浏览器工作台 + FastAPI + Python Worker”架构。Electron 只负责窗口、后端生命周期和外部链接；Agent、Skill、MCP、工作流与 SQLite 仍由 FastAPI 管理。
+
+```powershell
+cd desktop
+npm install
+npm start
+```
+
+启动器会在 Windows 优先选择 `backend/.venv/Scripts/python.exe`，在 Linux 优先选择 `backend/.venv-linux/bin/python`，也可以通过 `MY_AGENT_PYTHON` 指定解释器。它会选择随机的本机端口、启动 FastAPI、等待 `/api/health` 就绪后显示窗口，并在应用退出时回收整个后端进程树。
+
+桌面页面启用 `contextIsolation` 和 Chromium 沙箱，关闭 `nodeIntegration`。数据库、`.env`、用户 Skill 和工作流属于可写持久化数据，不进入 Electron 的 `app.asar`。当前第一阶段打包仍要求目标机器具备兼容的 Python 环境；内置 Python Runtime 属于下一阶段。
+
 Windows PowerShell：
 
 ```powershell

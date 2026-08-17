@@ -141,11 +141,13 @@ index.html — My Agent Next 管理中心
     margin-top: 12px; padding: 10px 14px; border-radius: var(--radius-sm);
     font-size: 0.83rem; font-weight: 600;
     display: flex; align-items: center; gap: 8px;
+    max-width: 100%; min-width: 0; white-space: normal;
+    overflow-wrap: anywhere; word-break: break-word;
   }
   .speed-success { background: rgba(52,211,153,.12); color: var(--success); }
   .speed-fail { background: rgba(244,71,113,.12); color: var(--danger); }
   .speed-running { background: rgba(251,191,36,.12); color: var(--warning); }
-  .speed-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .speed-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; }
   .speed-success .speed-dot { background: var(--success); }
   .speed-fail .speed-dot { background: var(--danger); }
   .speed-running .speed-dot { background: var(--warning); animation: pulse .8s infinite; }
@@ -2362,6 +2364,7 @@ async function workspaceLoadMessages(threadId) {
     $("#wsPlaceholder").style.display = "none";
     $("#wsMessages").style.display = "block";
     $("#wsInputArea").style.display = "flex";
+    $("#wsInput").disabled = wsStreaming;
 
     const msgs = thread.messages || [];
     $("#wsMessages").innerHTML = msgs.length
@@ -2373,6 +2376,7 @@ async function workspaceLoadMessages(threadId) {
     }
     // 滚动到底部
     $("#wsMessages").scrollTop = $("#wsMessages").scrollHeight;
+    if (!wsStreaming) $("#wsInput").focus();
   } catch(e) { toast("加载消息失败: "+e.message, "error"); }
 }
 

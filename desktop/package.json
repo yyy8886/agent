@@ -1,0 +1,43 @@
+{
+  "name": "my-agent-next-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electron desktop shell for My Agent Next",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test tests/*.test.js",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^37.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "com.myagentnext.desktop",
+    "productName": "My Agent Next",
+    "asar": true,
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../backend",
+        "to": "backend",
+        "filter": [
+          "**/*",
+          "!**/.venv/**",
+          "!**/.venv-linux/**",
+          "!**/__pycache__/**",
+          "!**/*.pyc",
+          "!my_agent_next/.env",
+          "!my_agent_next/data/**"
+        ]
+      }
+    ],
+    "win": { "target": "nsis" },
+    "linux": { "target": "AppImage", "category": "Utility" }
+  }
+}

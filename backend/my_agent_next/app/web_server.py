@@ -66,6 +66,12 @@ def index():
     return (static_dir / "index.html").read_text(encoding="utf-8")
 
 
+@app.get("/api/health")
+def health():
+    """Lightweight readiness probe used by the Electron launcher."""
+    return {"status": "ok"}
+
+
 # ── REST API ─────────────────────────────────────────────────────────────────
 
 

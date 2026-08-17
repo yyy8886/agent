@@ -1,1 +1,4 @@
 .workflow_artifacts/
+desktop/node_modules/
+desktop/dist/
+desktop/out/

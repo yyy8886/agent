@@ -1,5 +1,6 @@
 .env
 .venv/
+.venv-linux/
 __pycache__/
 *.egg-info/
 my_agent_next/data/agent-runs/

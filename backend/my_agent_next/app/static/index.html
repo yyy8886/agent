@@ -603,7 +603,7 @@ index.html — My Agent Next 管理中心
         <div class="form-group"><label>模型名称</label><input id="formModel" required placeholder="例如 deepseek-chat"></div>
       </div>
       <div class="form-group"><label>Base URL</label><input id="formBaseUrl" placeholder="留空使用 provider 默认地址"></div>
-      <div class="form-group" id="apiKeyEnvGroup"><label>API Key 环境变量名</label><input id="formApiKeyEnv" placeholder="例如 DEEPSEEK_API_KEY" pattern="[A-Z][A-Z0-9_]*"></div>
+      <div class="form-group" id="apiKeyEnvGroup"><label>API Key</label><input id="formApiKey" type="password" autocomplete="new-password" placeholder="输入后保存到 my_agent_next/.env；编辑留空则保持不变"></div>
       <div class="form-row">
         <div class="form-group"><label>Temperature</label><input id="formTemperature" type="number" value="0.2" step="0.1" min="0" max="2"></div>
         <div class="form-group"><label>Timeout（秒）</label><input id="formTimeout" type="number" value="60" min="1" max="600"></div>
@@ -965,7 +965,7 @@ function profileCard(p) {
   const dd = !p.enabled ? '<span class="badge badge-disabled">已停用</span>' : "";
   const ks = p.provider==="ollama"?'<span style="color:var(--success)">无需 Key</span>':
     (p.api_key_configured?'<span style="color:var(--success)">Key 已配置</span>':'<span style="color:var(--warning)">Key 未配置</span>');
-  const env = p.provider!=="ollama"?`<div><span>环境变量：</span>${esc(p.api_key_env||"未设置")}</div>`:"";
+  const env = p.provider!=="ollama"?`<div><span>API Key：</span>${p.api_key_configured?"已配置（my_agent_next/.env）":"未配置"}</div>`:"";
   return `<div class="card${p.is_default?" default":""}${!p.enabled?" disabled":""}">
     <div class="card-header"><div><div class="card-title">${esc(p.name)}${db}${dd}</div><div class="card-id">${esc(p.id)}</div></div></div>
     <div class="card-body">
@@ -989,7 +989,7 @@ function profileCard(p) {
 function openAddModal() {
   $("#profileModalTitle").textContent="新建 API 配置"; $("#formIsEdit").value=""; $("#formId").disabled=false;
   $("#formId").value=""; $("#formName").value=""; $("#formProvider").value="openai"; $("#formModel").value="";
-  $("#formBaseUrl").value=""; $("#formApiKeyEnv").value=""; $("#formTemperature").value="0.2";
+  $("#formBaseUrl").value=""; $("#formApiKey").value=""; $("#formTemperature").value="0.2";
   $("#formTimeout").value="60"; $("#formMaxRetries").value="2"; $("#formEnabled").checked=true; $("#formIsDefault").checked=false;
   onProviderChange(); $("#modalProfile").classList.remove("hidden");
 }
@@ -999,7 +999,7 @@ function openEditModal(id) {
   const p = profiles.find(x=>x.id===id); if(!p) return;
   $("#profileModalTitle").textContent=`编辑 ${p.id}`; $("#formIsEdit").value=p.id; $("#formId").value=p.id; $("#formId").disabled=true;
   $("#formName").value=p.name; $("#formProvider").value=p.provider; $("#formModel").value=p.model;
-  $("#formBaseUrl").value=p.base_url||""; $("#formApiKeyEnv").value=p.api_key_env||"";
+  $("#formBaseUrl").value=p.base_url||""; $("#formApiKey").value="";
   $("#formTemperature").value=p.temperature; $("#formTimeout").value=p.timeout_seconds;
   $("#formMaxRetries").value=p.max_retries; $("#formEnabled").checked=p.enabled; $("#formIsDefault").checked=p.is_default;
   onProviderChange(); $("#modalProfile").classList.remove("hidden");
@@ -1012,8 +1012,7 @@ window.closeProfileModal = closeProfileModal;
 function onProviderChange() {
   const g = $("#apiKeyEnvGroup"), pv = $("#formProvider").value;
   g.style.display = pv==="ollama"?"none":"block";
-  if(pv==="ollama") $("#formApiKeyEnv").removeAttribute("required");
-  else $("#formApiKeyEnv").setAttribute("required","");
+  $("#formApiKey").required = pv!=="ollama" && !$("#formIsEdit").value;
 }
 window.onProviderChange = onProviderChange;
 
@@ -1025,7 +1024,7 @@ async function submitProfileForm(e) {
     temperature:parseFloat($("#formTemperature").value)||0.2, timeout_seconds:parseInt($("#formTimeout").value)||60,
     max_retries:parseInt($("#formMaxRetries").value)||2, enabled:$("#formEnabled").checked, is_default:$("#formIsDefault").checked,
   };
-  if($("#formProvider").value!=="ollama") p.api_key_env=$("#formApiKeyEnv").value.trim();
+  if($("#formProvider").value!=="ollama") p.api_key=$("#formApiKey").value;
   try {
     const r = await fetch("/api/profiles",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(p)});
     if(!r.ok){const e=await r.json();throw new Error(e.detail);}

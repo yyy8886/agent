@@ -15,25 +15,58 @@
 #   HTTP 请求/响应           → 用例逻辑/校验            → SQLite 读写"""
 
 import os
+from pathlib import Path
+import re
+
+from dotenv import set_key
 
 from .api_profile import ApiProfile
 from .api_profile_repository import ApiProfileRepository
 
 
 class ApiProfileService:
-    def __init__(self, repository: ApiProfileRepository | None = None):
+    def __init__(
+        self,
+        repository: ApiProfileRepository | None = None,
+        env_path: Path | None = None,
+    ):
         self.repository = repository or ApiProfileRepository()
+        self.env_path = env_path or Path(__file__).resolve().parent.parent / ".env"
 
     def list(self) -> list[dict]:
         return [self._public(profile) for profile in self.repository.list()]
 
     def save(self, payload: dict) -> dict:
+        payload = dict(payload)
+        secret = payload.pop("api_key", None)
+        profile_id = str(payload.get("id", "")).strip()
+        existing = self.repository.get(profile_id)
+        if str(payload.get("provider", "")).strip().lower() != "ollama":
+            payload["api_key_env"] = (
+                existing.api_key_env if existing and existing.api_key_env
+                else self._env_name(profile_id)
+            )
+            if not secret and not existing:
+                raise ValueError("远程 provider 必须填写 API Key。")
+            if secret:
+                self._write_env(payload["api_key_env"], str(secret))
+        else:
+            payload["api_key_env"] = None
         profile = ApiProfile.from_dict(payload)
         existing = self.repository.get(profile.id)
         if existing and "is_default" not in payload:
             profile.is_default = existing.is_default
         self.repository.save(profile)
         return self._public(profile)
+
+    @staticmethod
+    def _env_name(profile_id: str) -> str:
+        normalized = re.sub(r"[^A-Za-z0-9]+", "_", profile_id).strip("_").upper()
+        return f"MY_AGENT_{normalized}_API_KEY"
+
+    def _write_env(self, name: str, value: str) -> None:
+        set_key(self.env_path, name, value, quote_mode="always")
+        os.environ[name] = value
 
     def delete(self, profile_id: str) -> bool:
         existing = self.repository.get(profile_id)
@@ -53,4 +86,3 @@ class ApiProfileService:
             True if profile.provider == "ollama" else bool(os.getenv(profile.api_key_env or ""))
         )
         return data
-

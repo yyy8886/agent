@@ -20,12 +20,13 @@ import zipfile
 import io
 from pathlib import Path
 
+from .runtime_paths import SKILLS_DIR
+
 import httpx
 from fastapi import APIRouter, HTTPException, Query
 
 router = APIRouter(prefix="/api/marketplace")
 
-SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills"
 SKILLS_DIR.mkdir(exist_ok=True)
 
 CLAWHUB_BASE = "https://clawhub.ai/api/v1"

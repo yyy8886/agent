@@ -1,0 +1,2893 @@
+<!--
+index.html — My Agent Next 管理中心
+=============================================================================
+管理 API 配置（Profile）和 Agent 配置，纯静态单页面（SPA）。
+
+功能标签页：
+  1. API 配置 — 管理模型连接（provider / model / Key），含测速
+  2. Agent 管理 — 管理 Agent（角色设定 / 绑定模型 / 分配 Skill）
+
+与后端的关系：
+  浏览器 → web_server.py (FastAPI)
+  /api/profiles/*  → API 配置 CRUD + 测速
+  /api/agents/*    → Agent CRUD
+  /api/skills      → 可用 Skill 列表
+  /api/model-options → 可选模型列表
+-->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Agent Next — 管理中心</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card-bg: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e1e4eb;
+    --text-dim: #8b8fa3;
+    --accent: #6c8cff;
+    --accent-hover: #8ba3ff;
+    --danger: #f44771;
+    --success: #34d399;
+    --warning: #fbbf24;
+    --radius: 10px;
+    --radius-sm: 6px;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 24px;
+  }
+  .container { max-width: 1100px; margin: 0 auto; }
+
+  /* Header */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 28px; flex-wrap: wrap; gap: 12px;
+  }
+  h1 { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.02em; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 2px; margin-bottom: 28px; border-bottom: 2px solid var(--border); }
+  .tab {
+    padding: 10px 24px; font-size: 0.9rem; font-weight: 600; cursor: pointer;
+    border: none; background: none; color: var(--text-dim);
+    border-bottom: 2px solid transparent; margin-bottom: -2px;
+    transition: color .15s, border-color .15s;
+  }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab:hover { color: var(--text); }
+
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 18px; border-radius: var(--radius-sm); border: none;
+    cursor: pointer; font-size: 0.875rem; font-weight: 600;
+    transition: background .15s, opacity .15s;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-sm { padding: 4px 12px; font-size: 0.8rem; }
+  .btn-danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+  .btn-danger:hover { background: var(--danger); color: #fff; }
+  .btn-ghost { background: transparent; color: var(--accent); border: 1px solid var(--border); }
+  .btn-ghost:hover { background: var(--border); }
+
+  /* Cards */
+  .cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    position: relative;
+    transition: border-color .15s;
+  }
+  .card:hover { border-color: #3a3e50; }
+  .card.default { border-color: var(--accent); }
+  .card.disabled { opacity: 0.55; }
+
+  .card-header {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .card-title { font-size: 1.05rem; font-weight: 700; }
+  .card-id { font-size: 0.75rem; color: var(--text-dim); font-family: monospace; margin-top: 2px; }
+
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 999px;
+    font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .badge-default { background: var(--accent); color: #fff; }
+  .badge-disabled { background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
+
+  .card-body { font-size: 0.85rem; line-height: 1.7; color: var(--text-dim); }
+  .card-body span { font-weight: 600; color: var(--text); }
+  .field-row { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 6px; }
+  .field-row > div { flex: 1; min-width: 80px; }
+
+  .card-actions { display: flex; gap: 6px; margin-top: 16px; flex-wrap: wrap; }
+
+  /* Agent card extras */
+  .persona-preview {
+    margin-top: 8px; padding: 8px 12px; background: #11131c; border-radius: var(--radius-sm);
+    font-size: 0.8rem; color: var(--text-dim); line-height: 1.5;
+    max-height: 80px; overflow: hidden; position: relative;
+  }
+  .persona-preview::after {
+    content: ""; position: absolute; bottom: 0; left: 0; right: 0; height: 24px;
+    background: linear-gradient(transparent, #11131c);
+  }
+  .skill-tag {
+    display: inline-block; padding: 1px 8px; margin: 2px 4px 2px 0;
+    border-radius: 999px; font-size: 0.7rem; font-weight: 600;
+    background: rgba(108,140,255,.15); color: var(--accent);
+  }
+  .skill-tag-empty { color: var(--text-dim); font-size: 0.78rem; }
+
+  /* Speed test */
+  .speed-result {
+    margin-top: 12px; padding: 10px 14px; border-radius: var(--radius-sm);
+    font-size: 0.83rem; font-weight: 600;
+    display: flex; align-items: center; gap: 8px;
+    max-width: 100%; min-width: 0; white-space: normal;
+    overflow-wrap: anywhere; word-break: break-word;
+  }
+  .speed-success { background: rgba(52,211,153,.12); color: var(--success); }
+  .speed-fail { background: rgba(244,71,113,.12); color: var(--danger); }
+  .speed-running { background: rgba(251,191,36,.12); color: var(--warning); }
+  .speed-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; }
+  .speed-success .speed-dot { background: var(--success); }
+  .speed-fail .speed-dot { background: var(--danger); }
+  .speed-running .speed-dot { background: var(--warning); animation: pulse .8s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+  /* Modal */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.7);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100; padding: 20px;
+  }
+  .hidden { display: none !important; }
+  .modal-overlay.hidden { display: none; }
+  .modal {
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 28px; width: 100%; max-width: 540px; max-height: 90vh; overflow-y: auto;
+  }
+  .modal h2 { font-size: 1.2rem; margin-bottom: 20px; }
+  .form-group { margin-bottom: 16px; }
+  .form-group label {
+    display: block; font-size: 0.8rem; font-weight: 600;
+    color: var(--text-dim); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .form-group input, .form-group select, .form-group textarea {
+    width: 100%; padding: 8px 12px; border-radius: var(--radius-sm);
+    border: 1px solid var(--border); background: #11131c; color: var(--text);
+    font-size: 0.9rem; font-family: inherit;
+  }
+  .form-group textarea { resize: vertical; min-height: 80px; }
+  .form-group input:focus, .form-group select:focus, .form-group textarea:focus { outline: none; border-color: var(--accent); }
+  .form-row { display: flex; gap: 12px; }
+  .form-row .form-group { flex: 1; }
+  .form-check {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+    font-size: 0.85rem; cursor: pointer;
+  }
+  .form-check input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); }
+  .form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+
+  /* Skill checkboxes grid */
+  .skill-checkboxes {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 4px; max-height: 200px; overflow-y: auto;
+    padding: 8px; background: #11131c; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  }
+
+  /* Toast */
+  .toast {
+    position: fixed; top: 20px; right: 20px; z-index: 200;
+    padding: 12px 20px; border-radius: var(--radius-sm);
+    font-size: 0.85rem; font-weight: 600;
+    animation: slideIn .2s ease;
+  }
+  .toast-error { background: var(--danger); color: #fff; }
+  .toast-success { background: var(--success); color: #000; }
+  @keyframes slideIn { from { transform: translateX(60px); opacity: 0 } to { transform: none; opacity: 1 } }
+
+  .empty-state { text-align: center; padding: 60px 20px; color: var(--text-dim); }
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     Workspace layout
+     ═══════════════════════════════════════════════════════════════════════ */
+  .workspace { display: flex; height: calc(100vh - 140px); gap: 0; min-height: 500px; }
+  .ws-sidebar {
+    width: 280px; min-width: 220px;
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .ws-sidebar-section { padding: 12px 14px; border-bottom: 1px solid var(--border); }
+  .ws-sidebar-section label { font-size: 0.7rem; font-weight: 700; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; }
+  .ws-sidebar-section select { width: 100%; margin-top: 4px; padding: 6px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: #11131c; color: var(--text); font-size: 0.85rem; }
+
+  .ws-thread-list { flex: 1; overflow-y: auto; padding: 4px 0; }
+  .ws-thread-item {
+    padding: 10px 14px; cursor: pointer; transition: background .1s;
+    border-bottom: 1px solid rgba(42,45,58,.4);
+  }
+  .ws-thread-item:hover { background: rgba(255,255,255,.03); }
+  .ws-thread-item.active { background: rgba(108,140,255,.1); border-left: 2px solid var(--accent); padding-left: 12px; }
+  .ws-thread-item .t-title { font-size: 0.85rem; font-weight: 600; margin-bottom: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ws-thread-item .t-meta { font-size: 0.7rem; color: var(--text-dim); display: flex; gap: 8px; justify-content: space-between; }
+  .ws-thread-item .t-delete { opacity: 0; font-size: 0.75rem; color: var(--danger); cursor: pointer; transition: opacity .1s; }
+  .ws-thread-item:hover .t-delete { opacity: 0.7; }
+
+  .ws-chat { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .ws-messages { flex: 1; overflow-y: auto; padding: 16px 20px; }
+  .ws-msg { margin-bottom: 16px; display: flex; flex-direction: column; }
+  .ws-msg-label { font-size: 0.7rem; font-weight: 700; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .ws-msg.user .ws-msg-label { color: var(--accent); align-self: flex-end; }
+  .ws-msg.assistant .ws-msg-label { color: var(--success); }
+  .ws-msg-bubble {
+    max-width: 80%; padding: 10px 16px; border-radius: var(--radius-sm);
+    font-size: 0.9rem; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+  }
+  .ws-msg.user .ws-msg-bubble { background: rgba(108,140,255,.15); align-self: flex-end; }
+  .ws-msg.assistant .ws-msg-bubble { background: #11131c; border: 1px solid var(--border); }
+
+  .ws-input-area {
+    padding: 12px 16px; border-top: 1px solid var(--border);
+    display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap;
+  }
+  .ws-attachment-tray { display:flex; gap:8px; flex:0 0 100%; min-height:0; overflow-x:auto; }
+  .ws-attachment-tray:empty { display:none; }
+  .ws-attachment { position:relative; flex:0 0 72px; width:72px; height:72px; border:1px solid var(--border); border-radius:6px; overflow:hidden; background:#0b0d12; }
+  .ws-attachment img { width:100%; height:100%; object-fit:cover; display:block; }
+  .ws-attachment button { position:absolute; top:3px; right:3px; width:20px; height:20px; padding:0; border:0; border-radius:50%; background:rgba(0,0,0,.75); color:#fff; cursor:pointer; line-height:20px; }
+  .ws-attachment.uploading::after { content:"上传中"; position:absolute; inset:auto 0 0; padding:3px; color:#fff; background:rgba(0,0,0,.72); font-size:.65rem; text-align:center; }
+  .ws-attach-button { flex:0 0 42px; width:42px; height:42px; padding:0 !important; display:inline-flex; align-items:center; justify-content:center; font-size:1.25rem; line-height:1; }
+  .ws-msg-images { display:grid; grid-template-columns:repeat(3,minmax(0,160px)); gap:6px; margin-bottom:7px; }
+  .ws-msg-images img { width:100%; aspect-ratio:1; object-fit:cover; border-radius:5px; cursor:pointer; background:#090b10; }
+  .ws-chat.dragging { outline:2px dashed var(--accent); outline-offset:-8px; }
+  .ws-input-area textarea {
+    flex: 1; padding: 10px 14px; border-radius: var(--radius-sm);
+    border: 1px solid var(--border); background: #11131c; color: var(--text);
+    font-size: 0.9rem; font-family: inherit; resize: none; min-height: 42px; max-height: 120px;
+  }
+  .ws-input-area textarea:focus { outline: none; border-color: var(--accent); }
+
+  .ws-placeholder {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: var(--text-dim); text-align: center; padding: 40px;
+  }
+  .ws-placeholder h3 { font-size: 1.1rem; color: var(--text); margin-bottom: 8px; }
+  .ws-empty-threads { padding: 20px 14px; text-align: center; color: var(--text-dim); font-size: 0.8rem; }
+
+  .ws-wf-section { padding: 12px 14px; border-top: 1px solid var(--border); }
+  .wf-title-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+  .ws-wf-section .wf-title { font-size: 0.7rem; font-weight: 700; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; }
+  .wf-help-button { display:inline-flex; align-items:center; justify-content:center; flex:0 0 22px; width:22px; height:22px; min-width:22px; margin:0; padding:0 !important; border-radius:50%; box-sizing:border-box; font-size:12px; font-weight:700; line-height:1; text-align:center; }
+  .ws-wf-controls { display:flex; gap:6px; }
+  .ws-wf-controls select { min-width:0; flex:1; }
+  .workflow-modal { width:min(1040px, calc(100vw - 32px)); max-width:none; max-height:calc(100vh - 32px); overflow:auto; }
+  .workflow-editor { min-height:360px !important; font-family:Consolas, "Courier New", monospace; line-height:1.5; tab-size:4; white-space:pre; }
+  .workflow-mode-switch { display:inline-flex; padding:3px; gap:3px; margin-bottom:12px; border:1px solid var(--border); border-radius:var(--radius-sm); background:#0c0e14; }
+  .workflow-mode-switch button { border:0; background:transparent; color:var(--text-dim); padding:7px 12px; border-radius:4px; cursor:pointer; font-size:.78rem; }
+  .workflow-mode-switch button.active { background:var(--accent); color:#fff; }
+  .visual-workflow-toolbar { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:8px; }
+  .visual-workflow-toolbar .spacer { flex:1; }
+  .visual-workflow-shell { display:grid; grid-template-columns:minmax(0,1fr) 250px; height:480px; border:1px solid var(--border); border-radius:var(--radius-sm); overflow:hidden; background:#0b0d13; }
+  .visual-workflow-viewport { position:relative; overflow:auto; background-color:#0c0f16; background-image:radial-gradient(#292e3c 1px,transparent 1px); background-size:20px 20px; }
+  .visual-workflow-canvas { position:relative; width:1400px; height:900px; min-width:100%; min-height:100%; }
+  .visual-workflow-edges { position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none; }
+  .visual-workflow-edges path { fill:none; stroke:#687086; stroke-width:2; pointer-events:stroke; cursor:pointer; }
+  .visual-workflow-edges path:hover,.visual-workflow-edges path.selected { stroke:var(--accent); stroke-width:3; }
+  .visual-edge-label { fill:var(--text-dim); font:11px sans-serif; paint-order:stroke; stroke:#0c0f16; stroke-width:4px; }
+  .visual-node { position:absolute; width:170px; min-height:72px; padding:10px 12px; border:1px solid #343a49; border-left:3px solid #6b7280; border-radius:6px; background:#151922; box-shadow:0 5px 14px rgba(0,0,0,.24); cursor:grab; user-select:none; z-index:2; }
+  .visual-node.selected { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); }
+  .visual-node[data-type="agent"] { border-left-color:#4f8cff; }
+  .visual-node[data-type="skill"] { border-left-color:#39b77a; }
+  .visual-node[data-type="condition"] { border-left-color:#e3a62f; }
+  .visual-node[data-type="tool"] { border-left-color:#ad7be9; }
+  .visual-node[data-type="mcp"] { border-left-color:#35b6c8; }
+  .visual-node[data-type="workflow"] { border-left-color:#e66b8c; }
+  .visual-node[data-type="start"],.visual-node[data-type="end"] { width:116px; min-height:54px; border-left-color:#8b93a6; }
+  .visual-node-type { color:var(--text-dim); font-size:.65rem; text-transform:uppercase; }
+  .visual-node-title { margin-top:4px; color:var(--text); font-size:.82rem; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .visual-node-detail { margin-top:5px; color:var(--text-dim); font-size:.68rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .visual-port { position:absolute; top:50%; width:15px; height:15px; margin-top:-7px; border:2px solid #98a1b5; border-radius:50%; background:#11141c; opacity:0; transition:opacity .12s,background .12s; cursor:crosshair; z-index:4; }
+  .visual-node:hover .visual-port,.visual-port.connecting { opacity:.72; }
+  .visual-port:hover { opacity:1 !important; background:var(--accent); border-color:#fff; }
+  .visual-port.input { left:-9px; }
+  .visual-port.output { right:-9px; }
+  .visual-inspector { overflow:auto; padding:12px; border-left:1px solid var(--border); background:#11141c; }
+  .visual-inspector h3 { margin:0 0 12px; font-size:.86rem; }
+  .visual-inspector .form-group { margin-bottom:10px; }
+  .visual-inspector label { font-size:.68rem; }
+  .visual-inspector input,.visual-inspector select,.visual-inspector textarea { font-size:.75rem; padding:7px 8px; }
+  .visual-inspector textarea { min-height:86px; }
+  .visual-empty-inspector { color:var(--text-dim); font-size:.75rem; line-height:1.6; }
+  .visual-context { margin:12px 0; border:1px solid var(--border); border-radius:var(--radius-sm); background:#0d1017; }
+  .visual-context summary { padding:8px 10px; cursor:pointer; color:var(--accent); font-size:.75rem; font-weight:700; }
+  .visual-context-body { padding:0 10px 10px; color:var(--text-dim); font-size:.7rem; line-height:1.5; }
+  .visual-context-section { margin-top:9px; }
+  .visual-context-section strong { display:block; color:var(--text); margin-bottom:3px; }
+  .visual-context-code { white-space:pre-wrap; word-break:break-word; padding:6px 7px; border:1px solid var(--border); border-radius:4px; background:#090b10; color:#b9c6e4; }
+  @media(max-width:800px){.visual-workflow-shell{grid-template-columns:1fr;height:620px}.visual-inspector{border-left:0;border-top:1px solid var(--border);max-height:230px}}
+  .workflow-dependency-row { display:grid; grid-template-columns:minmax(120px, 1fr) minmax(180px, 1.4fr) 34px; gap:8px; margin-bottom:8px; }
+  .workflow-validation { margin-top:10px; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-dim); font-size:.78rem; max-height:130px; overflow:auto; }
+  .workflow-validation.valid { border-color:var(--success); color:var(--success); }
+  .workflow-validation.invalid { border-color:var(--danger); color:var(--danger); }
+  .workflow-help { width:min(780px, calc(100vw - 32px)); max-width:none; max-height:calc(100vh - 40px); overflow:auto; }
+  .workflow-help h3 { margin:20px 0 8px; font-size:.95rem; }
+  .workflow-help p, .workflow-help li { color:var(--text-dim); font-size:.84rem; line-height:1.65; }
+  .workflow-help ol { padding-left:22px; }
+  .workflow-help code { color:var(--text); }
+  .workflow-help-flow { margin:12px 0 4px; padding:12px 14px; border-left:3px solid var(--accent); background:#11131c; color:var(--text); font-size:.86rem; line-height:1.7; }
+  .workflow-help-note { margin-top:10px; color:var(--text-dim); font-size:.78rem; }
+  .workflow-help-explain { width:100%; border-collapse:collapse; margin-top:10px; font-size:.8rem; }
+  .workflow-help-explain th, .workflow-help-explain td { padding:8px 10px; border-bottom:1px solid var(--border); text-align:left; vertical-align:top; line-height:1.55; }
+  .workflow-help-explain th { color:var(--text-dim); font-weight:600; }
+  .workflow-help-explain td:first-child { width:43%; color:var(--text); font-family:Consolas, "Courier New", monospace; }
+  .workflow-help-link { color:var(--accent); text-decoration:none; }
+  .workflow-help-link:hover { text-decoration:underline; }
+  .workflow-case { margin-top:14px; padding-top:14px; border-top:1px solid var(--border); }
+  .workflow-case h4 { margin:0 0 6px; font-size:.88rem; color:var(--text); }
+  .workflow-case .btn { margin-top:8px; }
+  .workflow-help pre { margin-top:8px; padding:14px; overflow:auto; border:1px solid var(--border); border-radius:var(--radius-sm); background:#0c0e14; color:var(--text); font:12px/1.55 Consolas, "Courier New", monospace; }
+
+  /* Responsive workspace */
+  @media (max-width: 700px) {
+    .workspace { flex-direction: column; height: auto; }
+    .ws-sidebar { width: 100%; min-width: auto; border-right: none; border-bottom: 1px solid var(--border); max-height: 200px; overflow-y: auto; }
+  }
+  .empty-state h3 { font-size: 1.1rem; margin-bottom: 8px; color: var(--text); }
+
+  /* Permission toggle */
+  .perm-btn {
+    padding: 3px 12px; border-radius: 999px; border: 1px solid var(--border);
+    background: transparent; color: var(--text-dim); font-size: .72rem;
+    font-weight: 700; cursor: pointer; transition: all .15s;
+  }
+  .perm-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .perm-btn:hover:not(.active) { border-color: var(--accent); color: var(--accent); }
+
+  /* Tool call bubble in chat */
+  .tool-call-msg {
+    margin: 4px 0; padding: 6px 12px; border-radius: var(--radius-sm);
+    font-size: .75rem; font-family: monospace; background: rgba(251,191,36,.08);
+    border: 1px solid rgba(251,191,36,.2); color: var(--warning);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .tool-call-msg.confirming { background: rgba(244,71,113,.08); border-color: rgba(244,71,113,.2); color: var(--danger); }
+
+  /* Thinking indicator */
+  .thinking-msg {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: .8rem; color: var(--text-dim); padding: 2px 0;
+  }
+  .thinking-spinner {
+    width: 12px; height: 12px; border: 2px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin .8s linear infinite; flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Tool log — collapsible list of tools/skills the agent called */
+  .tool-log {
+    margin: 4px 0; border: 1px solid var(--border);
+    border-radius: var(--radius-sm); overflow: hidden;
+  }
+  .tool-log-header {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 10px; cursor: pointer; user-select: none;
+    font-size: .75rem; color: var(--text-dim);
+    background: rgba(255,255,255,.02);
+  }
+  .tool-log-header:hover { color: var(--text); }
+  .tool-log-header .arrow { display: inline-block; transition: transform .15s; }
+  .tool-log.open .tool-log-header .arrow { transform: rotate(90deg); }
+  .tool-log-body {
+    display: none; padding: 6px 10px; border-top: 1px solid var(--border);
+    font-size: .72rem; font-family: monospace; line-height: 1.6;
+    max-height: 200px; overflow-y: auto;
+  }
+  .tool-log.open .tool-log-body { display: block; }
+  .tool-log-item { display: flex; gap: 6px; margin: 2px 0; color: var(--text-dim); }
+  .tool-log-item .tl-name { color: var(--warning); flex-shrink: 0; font-weight: 600; }
+  .tool-log-item .tl-skill { color: var(--accent); flex-shrink: 0; }
+  .tool-log-item .tl-detail { color: var(--text-dim); word-break: break-all; min-width: 0; }
+  .workflow-trace { margin-top:10px; border-top:1px solid var(--border); padding-top:7px; font-size:.75rem; color:var(--text-dim); white-space:normal; }
+  .workflow-trace summary { cursor:pointer; user-select:none; color:var(--text-dim); font-family:inherit; font-weight:600; }
+  .workflow-trace-body { margin-top:6px; max-height:280px; overflow:auto; font-family:Consolas, "Courier New", monospace; }
+  .workflow-trace-item { padding:4px 0; border-bottom:1px solid rgba(255,255,255,.04); word-break:break-word; }
+  .workflow-trace-item .event-name { color:var(--accent); font-weight:700; margin-right:7px; }
+  .workflow-trace-item.error .event-name { color:var(--danger); }
+  .workflow-trace-item.output .event-name { color:var(--success); }
+  .workflow-trace-item .agent-stream-text { white-space:pre-wrap; }
+  .skill-compat { display:inline-flex;align-items:center;gap:5px;font-size:.72rem;font-weight:700; }
+  .skill-compat::before { content:"";width:8px;height:8px;border-radius:50%;background:#778; }
+  .skill-compat.green::before { background:var(--success); }
+  .skill-compat.yellow::before { background:var(--warning); }
+  .skill-compat.red::before { background:var(--danger); }
+  .skill-card-tools { display:flex;align-items:center;gap:8px;margin-left:auto; }
+  .skill-icon-btn { border:0;background:transparent;color:var(--text-dim);cursor:pointer;font-size:1rem;padding:3px 5px; }
+  .skill-icon-btn:hover { color:var(--accent); }
+  .skill-description.collapsed { display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden; }
+  .skill-details { display:none;border-top:1px solid var(--border);margin-top:10px;padding-top:10px;font-size:.76rem;line-height:1.55;color:var(--text-dim); }
+  .skill-card.expanded .skill-details { display:block; }
+  .skill-card.expanded .skill-description { display:block; }
+  .compat-issue { margin-top:6px;padding:6px 8px;border-radius:6px;background:rgba(255,255,255,.025); }
+
+  @media (max-width: 500px) {
+    body { padding: 14px; }
+    .cards-grid { grid-template-columns: 1fr; }
+    .form-row { flex-direction: column; gap: 0; }
+    header { flex-direction: column; align-items: flex-start; }
+    .skill-checkboxes { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div>
+      <h1>⚡ My Agent Next</h1>
+      <p style="color:var(--text-dim);font-size:.85rem;margin-top:4px">API Profile 管理 &amp; Agent 配置</p>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-primary" id="btnNewProfile" onclick="openAddModal()">+ 新建 API 配置</button>
+      <button class="btn btn-primary" id="btnNewAgent" onclick="openAgentAddModal()" style="display:none">+ 新建 Agent</button>
+      <button class="btn btn-primary" id="btnNewThread" onclick="workspaceNewThread()" style="display:none">+ 新建对话</button>
+      <button class="btn btn-primary" id="btnNewMcp" onclick="openMcpModal()" style="display:none">+ 添加 MCP 服务</button>
+    </div>
+  </header>
+
+  <!-- ── 标签页 ─────────────────────────────────────────────────────────────── -->
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('profiles')">🔌 API 配置</button>
+    <button class="tab" onclick="switchTab('agents')">🤖 Agent 管理</button>
+    <button class="tab" onclick="switchTab('workspace')">💬 工作台</button>
+    <button class="tab" onclick="switchTab('marketplace')">🛒 Skill 市场</button>
+    <button class="tab" onclick="switchTab('mcp')">MCP 服务</button>
+  </div>
+
+  <!-- ── API 配置页 ─────────────────────────────────────────────────────────── -->
+  <div id="tab-profiles" class="tab-content active">
+    <div id="profiles" class="cards-grid"></div>
+    <div id="empty-profiles" class="empty-state hidden">
+      <h3>还没有 API 配置</h3><p>点击「新建 API 配置」添加模型连接。</p>
+    </div>
+  </div>
+
+  <!-- ── Agent 管理页 ───────────────────────────────────────────────────────── -->
+  <div id="tab-agents" class="tab-content">
+    <div id="agents" class="cards-grid"></div>
+    <div id="empty-agents" class="empty-state hidden">
+      <h3>还没有 Agent</h3><p>点击「新建 Agent」创建第一个智能体。</p>
+    </div>
+  </div>
+
+  <!-- ── Skill 市场 ──────────────────────────────────────────────────────────── -->
+  <div id="tab-marketplace" class="tab-content">
+    <div style="display:flex;gap:12px;margin-bottom:16px;align-items:center">
+      <input id="mpSearch" placeholder="搜索 Skill..." style="flex:1;padding:8px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);background:#11131c;color:var(--text);font-size:.9rem"
+        onkeydown="if(event.key==='Enter') mpSearch()">
+      <select id="mpSource" style="padding:8px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);background:#11131c;color:var(--text);font-size:.85rem">
+        <option value="all">全部来源</option><option value="clawhub">ClawHub</option><option value="skillsmp">SkillsMP</option>
+      </select>
+      <select id="mpSort" style="padding:8px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);background:#11131c;color:var(--text);font-size:.85rem">
+        <option value="trending">最热</option><option value="relevance">关联度最高</option>
+      </select>
+      <button class="btn btn-primary btn-sm" onclick="mpSearch()">搜索</button>
+    </div>
+    <div id="mpInstalled" style="margin-bottom:20px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <h3 style="font-size:.9rem;font-weight:700;color:var(--text)">📦 已安装 (<span id="mpInstalledCount">0</span>)</h3>
+        <button id="mpInstalledToggle" class="skill-icon-btn" title="折叠或展开全部已安装 Skill" onclick="toggleInstalledSection()">⌄</button>
+      </div>
+      <div id="mpInstalledList" class="cards-grid"></div>
+      <div id="mpInstalledEmpty" style="padding:12px;text-align:center;color:var(--text-dim);font-size:.8rem;border:1px dashed var(--border);border-radius:var(--radius-sm)">暂无已安装 Skill</div>
+    </div>
+    <div id="mpResults" class="cards-grid"></div>
+    <div id="mpEmpty" class="empty-state hidden"><h3>搜索 Skill 市场</h3><p>输入关键词搜索 ClawHub 和 SkillsMP 上的 Skill。</p></div>
+  </div>
+
+  <!-- ── 工具确认弹窗 ────────────────────────────────────────────────────────── -->
+  <div class="modal-overlay hidden" id="modalToolConfirm">
+    <div class="modal" style="max-width:460px">
+      <h2 id="toolConfirmTitle">工具调用确认</h2>
+      <div id="toolConfirmBody" style="margin-bottom:16px;font-size:.85rem;line-height:1.6"></div>
+      <div class="form-actions">
+        <button class="btn btn-danger btn-sm" onclick="toolConfirmRespond(false)">拒绝</button>
+        <button class="btn btn-primary btn-sm" onclick="toolConfirmRespond(true)">允许</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 用户问答弹窗 ────────────────────────────────────────────────────────── -->
+  <div class="modal-overlay hidden" id="modalAskUser">
+    <div class="modal" style="max-width:520px">
+      <h2 id="askUserTitle">需要您的输入</h2>
+      <div id="askUserBody" style="margin-bottom:16px;font-size:.85rem;line-height:1.6"></div>
+      <div class="form-actions">
+        <button class="btn btn-danger btn-sm" onclick="askUserRespond(null)">跳过</button>
+        <button class="btn btn-primary btn-sm" onclick="askUserRespond()">提交</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 工作台 ─────────────────────────────────────────────────────────────── -->
+  <div id="tab-workspace" class="tab-content">
+    <div class="workspace">
+      <!-- 左侧栏 -->
+      <div class="ws-sidebar">
+        <div class="ws-sidebar-section" style="display:flex;align-items:center;gap:8px">
+          <div style="flex:1">
+            <label>选择对话</label>
+            <select id="wsConversationSelect" onchange="workspaceOnConversationChange()"><option value="">-- 请选择 --</option></select>
+          </div>
+        </div>
+        <div class="ws-sidebar-section" style="display:flex;align-items:center;gap:8px">
+          <label style="font-size:.7rem;font-weight:700;color:var(--text-dim);text-transform:uppercase">权限模式</label>
+          <div style="display:flex;gap:4px;margin-top:4px">
+            <button class="perm-btn active" id="permManual" onclick="setPermissionMode('manual')">手动</button>
+            <button class="perm-btn" id="permAuto" onclick="setPermissionMode('auto')">自动</button>
+          </div>
+        </div>
+        <div class="ws-sidebar-section" id="wsWorkflowRuntimeSettings" style="display:none">
+          <label for="wsWorkflowTimeout" style="font-size:.7rem;font-weight:700;color:var(--text-dim);text-transform:uppercase">运行上限</label>
+          <div style="display:flex;align-items:center;gap:7px;margin-top:6px">
+            <input id="wsWorkflowTimeout" type="number" min="1" max="1800" step="30" value="300"
+              onchange="saveWorkflowTimeout(this.value)" style="width:92px;padding:6px 8px">
+            <span style="font-size:.72rem;color:var(--text-dim)">秒</span>
+          </div>
+          <label for="wsWorkflowAgentIterations" style="display:block;margin-top:10px;font-size:.7rem;font-weight:700;color:var(--text-dim);text-transform:uppercase">Agent 工具轮数</label>
+          <div style="display:flex;align-items:center;gap:7px;margin-top:6px">
+            <input id="wsWorkflowAgentIterations" type="number" min="1" max="200" step="10" value="60"
+              onchange="saveWorkflowAgentIterations(this.value)" style="width:92px;padding:6px 8px">
+            <span style="font-size:.72rem;color:var(--text-dim)">轮/Agent</span>
+          </div>
+        </div>
+        <div class="ws-sidebar-section" id="wsAgentRuntimeSettings" style="display:none">
+          <label for="wsAgentIterations" style="font-size:.7rem;font-weight:700;color:var(--text-dim);text-transform:uppercase">Agent 工具轮数</label>
+          <div style="display:flex;align-items:center;gap:7px;margin-top:6px">
+            <input id="wsAgentIterations" type="number" min="1" max="200" step="10" value="60"
+              onchange="saveAgentIterations(this.value)" style="width:92px;padding:6px 8px">
+            <span style="font-size:.72rem;color:var(--text-dim)">轮</span>
+          </div>
+        </div>
+        <div class="ws-thread-list" id="wsThreadList">
+          <div class="ws-empty-threads">请先选择 Agent 或工作流</div>
+        </div>
+        <div class="ws-wf-section">
+          <div class="wf-title-row">
+            <div class="wf-title">工作流配置</div>
+            <button class="btn btn-ghost wf-help-button" onclick="openWorkflowHelp()" title="工作流编写帮助" aria-label="工作流编写帮助">?</button>
+          </div>
+          <div class="ws-wf-controls">
+            <select id="wsWorkflowSelect" onchange="workspaceWorkflowChanged()"><option value="">未选择工作流</option></select>
+            <button class="btn btn-ghost btn-sm" onclick="openWorkflowModal()" title="新建工作流">＋</button>
+            <button class="btn btn-ghost btn-sm" id="wsWorkflowEdit" onclick="editSelectedWorkflow()" title="编辑工作流" disabled>编辑</button>
+          </div>
+        </div>
+      </div>
+      <!-- 对话区 -->
+      <div class="ws-chat" id="wsChat">
+        <div class="ws-placeholder" id="wsPlaceholder">
+          <h3>💬 工作台</h3>
+          <p>选择 Agent 或工作流</p>
+        </div>
+        <div class="ws-messages" id="wsMessages" style="display:none"></div>
+        <div class="ws-input-area" id="wsInputArea" style="display:none">
+          <div class="ws-attachment-tray" id="wsAttachmentTray"></div>
+          <input id="wsAttachmentInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden onchange="workspaceChooseAttachments(this.files);this.value=''">
+          <button class="btn btn-ghost ws-attach-button" id="wsAttachButton" onclick="document.getElementById('wsAttachmentInput').click()" title="添加图片" aria-label="添加图片">＋</button>
+          <textarea id="wsInput" rows="1" placeholder="输入消息… (Enter 发送，Shift+Enter 换行)"
+            onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();workspaceSend()}"></textarea>
+          <button class="btn btn-danger btn-sm" id="wsStopButton" onclick="workspaceStop()" style="display:none">停止</button>
+          <button class="btn btn-primary btn-sm" onclick="workspaceSend()">发送</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     API Profile 编辑弹窗
+     ═════════════════════════════════════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="modalProfile">
+  <div class="modal">
+    <h2 id="profileModalTitle">新建 API 配置</h2>
+    <form id="profileForm" onsubmit="submitProfileForm(event)">
+      <input type="hidden" id="formIsEdit">
+      <div class="form-group"><label>配置 ID（唯一标识）</label><input id="formId" required placeholder="例如 deepseek_chat" pattern="[a-z][a-z0-9_-]{1,50}"></div>
+      <div class="form-group"><label>显示名称</label><input id="formName" required placeholder="例如 DeepSeek Chat"></div>
+      <div class="form-row">
+        <div class="form-group"><label>Provider</label><select id="formProvider" onchange="onProviderChange()"><option value="openai">OpenAI / 兼容代理</option><option value="deepseek">DeepSeek</option><option value="ollama">Ollama</option></select></div>
+        <div class="form-group"><label>模型名称</label><input id="formModel" required placeholder="例如 deepseek-chat"></div>
+      </div>
+      <div class="form-group"><label>Base URL</label><input id="formBaseUrl" placeholder="留空使用 provider 默认地址"></div>
+      <div class="form-group" id="apiKeyEnvGroup"><label>API Key</label><input id="formApiKey" type="password" autocomplete="new-password" placeholder="输入后保存到 my_agent_next/.env；编辑留空则保持不变"></div>
+      <div class="form-row">
+        <div class="form-group"><label>Temperature</label><input id="formTemperature" type="number" value="0.2" step="0.1" min="0" max="2"></div>
+        <div class="form-group"><label>Timeout（秒）</label><input id="formTimeout" type="number" value="60" min="1" max="600"></div>
+        <div class="form-group"><label>Max Retries</label><input id="formMaxRetries" type="number" value="2" min="0" max="10"></div>
+      </div>
+      <div class="form-check"><input type="checkbox" id="formEnabled" checked><label for="formEnabled">启用</label></div>
+      <div class="form-check"><input type="checkbox" id="formIsDefault"><label for="formIsDefault">设为默认</label></div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-ghost" onclick="closeProfileModal()">取消</button>
+        <button type="submit" class="btn btn-primary">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     Agent 编辑弹窗
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="modalAgent">
+  <div class="modal">
+    <h2 id="agentModalTitle">新建 Agent</h2>
+    <form id="agentForm" onsubmit="submitAgentForm(event)">
+      <input type="hidden" id="agentFormIsEdit">
+      <div class="form-group"><label>Agent ID（唯一标识）</label><input id="agentFormId" required placeholder="例如 mabel" pattern="[a-z][a-z0-9_-]{1,40}"></div>
+      <div class="form-group"><label>显示名称</label><input id="agentFormName" required placeholder="例如 梅贝尔"></div>
+      <div class="form-group"><label>角色描述</label><input id="agentFormRole" placeholder="例如 陪伴者与最终输出"></div>
+      <div class="form-group"><label>绑定模型</label><select id="agentFormModel"></select>
+      <div style="font-size:.75rem;color:var(--text-dim);margin-top:4px">留空则自动使用默认 API 配置</div></div>
+      <div class="form-group"><label>Persona / 系统提示词</label><textarea id="agentFormPersona" placeholder="直接传给 LLM 的 system prompt，定义 Agent 的语气、风格和行为规则。"></textarea></div>
+      <div class="form-group">
+        <label>可用 Skill</label>
+        <div style="display:flex;gap:6px;margin-bottom:8px">
+          <input id="skillInput" placeholder="输入 Skill 名称后回车添加" style="flex:1"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();addSkillTag()}">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="addSkillTag()">添加</button>
+        </div>
+        <div id="skillTags" style="display:flex;flex-wrap:wrap;gap:4px;min-height:28px"></div>
+        <div id="skillSuggestions" style="margin-top:8px;font-size:.75rem;color:var(--text-dim)"></div>
+      </div>
+      <div class="form-check"><input type="checkbox" id="agentFormEnabled" checked><label for="agentFormEnabled">启用</label></div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-ghost" onclick="closeAgentModal()">取消</button>
+        <button type="submit" class="btn btn-primary">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="modalWorkflowHelp">
+  <div class="modal workflow-help">
+    <h2>工作流怎么写</h2>
+    <p>把工作流理解成一条处理流水线：每个节点做一件事，做完后把结果交给下一个节点。</p>
+    <div class="workflow-help-flow">用户输入 → 梅贝尔提取参数 → 天气 Skill 查询 → 诺登整理回答</div>
+
+    <h3>优先使用可视化画布</h3>
+    <ol>
+      <li>点击“＋ Agent”“＋ Skill”或“＋ 条件”加入模块。</li>
+      <li>鼠标移到节点上，从右侧半透明圆点拖到下一个节点完成连接；也可以先点击圆点，再点击目标节点。</li>
+      <li>点击节点，在右侧配置 Agent、任务模板、Skill 参数和输出字段。</li>
+      <li>系统会按执行层级自动排列。手动拖动节点只会保存位置微调，点击“自动排列”可以恢复整齐布局。</li>
+      <li>条件节点的前两条出线会分别标记为“是”和“否”；箭头可以连回前面的节点形成循环，运行仍受递归上限和停止按钮保护。</li>
+    </ol>
+    <p class="workflow-help-note">可视化画布和高级代码分别保存。画布由后端确定性生成 Workflow SDK 源码，再编译成原生 LangGraph；它不是交给模型解释的提示词。</p>
+    <p class="workflow-help-note">可视化 Agent 节点运行时会自动知道工作流 ID、自己所在的节点、完整路线和其他 Agent 的职责，无需把这些内容重复写进任务模板。</p>
+
+    <h3>高级代码：第一步决定每个节点做什么</h3>
+    <ol>
+      <li><strong>节点</strong>就是一个 Python 函数，例如“调用梅贝尔”。</li>
+      <li><strong>State</strong>是节点共用的数据袋，里面放用户输入、中间结果和最终回答。</li>
+      <li><strong>连线</strong>决定执行顺序，例如 <code>START → ask_agent → END</code>。</li>
+    </ol>
+
+    <h3>第二步：从这个最小模板开始</h3>
+    <p>下面只有一个节点：收到用户的 <code>message</code>，交给梅贝尔，然后把结果保存为 <code>answer</code>。</p>
+    <pre>from typing import TypedDict
+
+from langgraph.graph import END, START, StateGraph
+from langgraph.runtime import Runtime
+from my_agent_next.workflow_sdk import WorkflowRuntime
+
+
+class State(TypedDict, total=False):
+    message: str
+    answer: str
+
+
+async def ask_agent(state: State, runtime: Runtime[WorkflowRuntime]) -&gt; dict:
+    result = await runtime.context.call_agent(
+        "mabel",
+        {"message": state["message"]},
+    )
+    return {"answer": str(result.get("answer", ""))}
+
+
+def build_workflow():
+    graph = StateGraph(State, context_schema=WorkflowRuntime)
+    graph.add_node("ask_agent", ask_agent)
+    graph.add_edge(START, "ask_agent")
+    graph.add_edge("ask_agent", END)
+    return graph.compile()</pre>
+
+    <h3>第三步：逐句看懂模板</h3>
+    <table class="workflow-help-explain">
+      <thead><tr><th>代码</th><th>它在做什么</th></tr></thead>
+      <tbody>
+        <tr><td>from typing import TypedDict</td><td>导入一种“有固定字段的字典”类型，用来说明工作流中会保存哪些数据。</td></tr>
+        <tr><td>from langgraph.graph import END, START, StateGraph</td><td>导入工作流图、开始标记和结束标记。后面用它们搭建执行顺序。</td></tr>
+        <tr><td>from langgraph.runtime import Runtime</td><td>导入节点运行时对象。节点通过它使用应用提供的 Agent、Skill 和子工作流能力。</td></tr>
+        <tr><td>from my_agent_next.workflow_sdk import WorkflowRuntime</td><td>导入本应用公开的工作流接口。用户源码只应通过这个入口访问应用能力。</td></tr>
+        <tr><td>class State(TypedDict, total=False):</td><td>定义整个流程共用的数据袋。<code>total=False</code> 表示字段可以随着节点执行逐步加入。</td></tr>
+        <tr><td>message: str</td><td>保存用户最初输入的文字。</td></tr>
+        <tr><td>answer: str</td><td>保存工作流最终产生的回答。</td></tr>
+        <tr><td>async def ask_agent(...):</td><td>定义名为 <code>ask_agent</code> 的异步节点。<code>state</code> 是当前数据，<code>runtime</code> 提供调用能力。</td></tr>
+        <tr><td>runtime.context.call_agent("mabel", ...)</td><td>调用 ID 为 <code>mabel</code> 的 Agent，并把用户的 <code>message</code> 传给她。</td></tr>
+        <tr><td>result = await ...</td><td><code>await</code> 表示等待 Agent 回答完成，再把返回对象保存到 <code>result</code>。</td></tr>
+        <tr><td>return {"answer": ...}</td><td>节点返回对 State 的更新：把 Agent 回答写入 <code>answer</code> 字段。</td></tr>
+        <tr><td>def build_workflow():</td><td>工作流固定入口。应用通过这个无参数同步函数构建整张图。</td></tr>
+        <tr><td>StateGraph(State, context_schema=WorkflowRuntime)</td><td>创建一张使用 <code>State</code> 保存数据、使用本应用 Runtime 能力的 LangGraph 图。</td></tr>
+        <tr><td>graph.add_node("ask_agent", ask_agent)</td><td>把前面写好的函数注册为图中的一个节点，并给节点命名。</td></tr>
+        <tr><td>graph.add_edge(START, "ask_agent")</td><td>规定流程开始后，首先执行 <code>ask_agent</code> 节点。</td></tr>
+        <tr><td>graph.add_edge("ask_agent", END)</td><td>规定该节点执行完成后，整个流程结束。</td></tr>
+        <tr><td>return graph.compile()</td><td>检查并编译图，然后把可运行的工作流返回给应用。</td></tr>
+      </tbody>
+    </table>
+
+    <h3>第四步：需要什么能力就调用什么</h3>
+    <p>调用 Agent，用 Agent 的 ID，例如梅贝尔是 <code>mabel</code>：</p>
+    <pre>result = await runtime.context.call_agent(
+    "mabel",
+    {"message": state["message"]},
+)</pre>
+    <p>调用 Skill 或工具，用它的名称并填写参数：</p>
+    <pre>result = await runtime.context.call_skill(
+    "weather-skill",
+    {"city": state["city"]},
+)</pre>
+
+    <h3>第五步：嵌套已有工作流</h3>
+    <ol>
+      <li>在编辑窗口点击“添加依赖”。</li>
+      <li>依赖键填写一个源码里使用的简称，例如 <code>weather_query</code>。</li>
+      <li>目标工作流选择“诺登天气查询”。</li>
+      <li>在节点中通过同一个依赖键调用：</li>
+    </ol>
+    <pre>result = await runtime.context.call_workflow(
+    "weather_query",
+    {"message": state["message"]},
+    )</pre>
+    <p class="workflow-help-note">依赖键是当前工作流给子工作流起的简称，不是子工作流 ID。保存前点击“静态验证”可以查看语法、入口和导入问题；保存后，源码会生成不可变 Python 运行产物，并由独立 Worker 直接导入和执行。</p>
+
+    <h3>第六步：输入、输出和运行过程</h3>
+    <ol>
+      <li>界面会把用户问题作为 <code>{"message": "..."}</code> 传入工作流。</li>
+      <li>最终 State 必须包含 <code>{"answer": "..."}</code>，应用才能把回答显示并保存到对话。</li>
+      <li>Agent、Tool、Skill 和子工作流都通过 <code>runtime.context</code> 调用；每次调用的输入、输出会进入运行过程。</li>
+      <li>工作流使用 LangGraph 原生 <code>astream()</code> 执行，节点输出会实时返回页面，最终回答出现后运行过程自动折叠。</li>
+    </ol>
+
+    <h3>条件、循环与停止</h3>
+    <p>可以直接使用 LangGraph 的 <code>add_conditional_edges()</code>、回边，也可以在节点函数中使用 Python 的 <code>if</code>、<code>for</code> 和 <code>while</code>。这些代码由 LangGraph 和 Python 原生执行，不会被应用改写。</p>
+    <pre>def choose_next(state: State) -> str:
+    return "retry" if state.get("attempts", 0) &lt; 3 else "finish"
+
+graph.add_conditional_edges(
+    "check",
+    choose_next,
+    {"retry": "query_again", "finish": END},
+)</pre>
+    <p class="workflow-help-note">循环必须写清楚退出条件。运行时同时受递归上限和总超时保护；点击工作台的“停止”会先请求协作取消，无法退出的代码会由运行管理器强制终止 Worker。</p>
+
+    <h3>项目里的两个真实案例</h3>
+    <div class="workflow-case">
+      <h4>案例一：诺登天气查询</h4>
+      <div class="workflow-help-flow">用户问题 → 梅贝尔提取城市 → weather-skill 查询 → 诺登整理回答</div>
+      <p>工作流 ID：<code>norden-weather-flow</code>。它演示了一个 State 如何在三个节点间逐步增加 <code>city</code>、<code>weather_result</code> 和 <code>answer</code>。</p>
+      <ol>
+        <li><code>mabel_extracts_parameters</code> 调用梅贝尔，只负责从用户问题中提取城市。</li>
+        <li><code>weather_skill</code> 独立调用天气 Skill，梅贝尔本身不需要绑定这个 Skill。</li>
+        <li><code>norden_answers</code> 把用户问题和真实天气结果交给诺登，生成最终答案。</li>
+      </ol>
+      <pre>result = await runtime.context.call_skill(
+    "weather-skill",
+    {"city": state["city"]},
+)</pre>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="openWorkflowCase('norden-weather-flow')">打开案例一源码</button>
+    </div>
+
+    <div class="workflow-case">
+      <h4>案例二：小丑天气嵌套工作流</h4>
+      <div class="workflow-help-flow">用户问题 → 小丑开场 → 案例一完整执行 → 小丑最终回答</div>
+      <p>工作流 ID：<code>clown-weather-wrapper</code>。它没有复制案例一的节点，而是把整个 <code>norden-weather-flow</code> 当成一个子工作流。</p>
+      <ol>
+        <li>依赖配置把 <code>weather_query</code> 指向 <code>norden-weather-flow</code>。</li>
+        <li><code>clown_opens</code> 先调用小丑处理用户输入。</li>
+        <li><code>norden_weather_workflow</code> 通过依赖键执行整个案例一。</li>
+        <li><code>clown_closes</code> 根据案例一返回的天气答案生成最终回答。</li>
+      </ol>
+      <pre>result = await runtime.context.call_workflow(
+    "weather_query",
+    {"message": state["prepared_message"]},
+)</pre>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="openWorkflowCase('clown-weather-wrapper')">打开案例二源码</button>
+    </div>
+
+    <h3>继续学习</h3>
+    <p><a class="workflow-help-link" href="https://docs.langchain.com/oss/python/langgraph/overview" target="_blank" rel="noopener noreferrer">打开 LangGraph Python 官方文档 ↗</a></p>
+
+    <div class="form-actions">
+      <button type="button" class="btn btn-primary" onclick="closeWorkflowHelp()">知道了</button>
+    </div>
+  </div>
+</div>
+
+<!-- MCP 服务 -->
+<div id="tab-mcp" class="tab-content">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <div><h3 style="font-size:.95rem">MCP Servers</h3><p style="color:var(--text-dim);font-size:.78rem;margin-top:3px">连接、发现并测试 Tool、Resource 与 Prompt。</p></div>
+      <button class="btn btn-ghost btn-sm" onclick="loadMcpServers()">重新加载</button>
+    </div>
+    <div id="mcpServers" class="cards-grid"></div>
+    <div id="mcpEmpty" class="empty-state hidden"><h3>还没有 MCP 服务</h3><p>添加本地 stdio Server 后进行连接测试。</p></div>
+  </div>
+
+<div class="modal-overlay hidden" id="modalMcp">
+    <div class="modal" style="max-width:650px">
+      <h2 id="mcpModalTitle">添加 MCP 服务</h2>
+      <form id="mcpForm" onsubmit="saveMcpServer(event)">
+        <div class="form-row"><div class="form-group"><label>ID</label><input id="mcpFormId" required placeholder="l6_time"></div><div class="form-group"><label>名称</label><input id="mcpFormName" required placeholder="L6 Time Server"></div></div>
+        <div class="form-row"><div class="form-group"><label>传输方式</label><select id="mcpFormTransport"><option value="stdio">stdio</option></select></div><div class="form-group"><label>启动命令</label><input id="mcpFormCommand" required value="python"></div></div>
+        <div class="form-group"><label>参数 JSON</label><textarea id="mcpFormArgs" rows="3">[]</textarea></div>
+        <div class="form-group"><label>工作目录（相对 backend）</label><input id="mcpFormCwd" value="."></div>
+        <div class="form-group"><label>环境变量名（每行一个，不保存真实值）</label><textarea id="mcpFormEnv" rows="2"></textarea></div>
+        <div class="form-group"><label>绑定 Agent</label><div id="mcpAgentBindings" class="skill-checkboxes"></div></div>
+        <label class="check-label"><input type="checkbox" id="mcpFormEnabled" checked> 启用</label>
+        <div class="form-actions"><button type="button" class="btn btn-ghost" onclick="closeMcpModal()">取消</button><button class="btn btn-primary" type="submit">保存</button></div>
+      </form>
+    </div>
+</div>
+
+<div class="modal-overlay hidden" id="modalWorkflow">
+  <div class="modal workflow-modal">
+    <h2 id="workflowModalTitle">新建工作流草稿</h2>
+    <form id="workflowForm" onsubmit="saveWorkflowDraft(event)">
+      <input type="hidden" id="workflowFormIsEdit">
+      <div class="form-row">
+        <div class="form-group"><label>工作流 ID</label><input id="workflowFormId" required pattern="[a-z][a-z0-9_-]{1,63}" placeholder="例如 support-flow"></div>
+        <div class="form-group"><label>名称</label><input id="workflowFormName" required maxlength="100" placeholder="例如 客服处理"></div>
+      </div>
+      <div class="form-group"><label>说明</label><input id="workflowFormDescription" maxlength="1000" placeholder="这个工作流解决什么问题"></div>
+      <div class="workflow-mode-switch" role="tablist">
+        <button type="button" id="workflowModeVisual" onclick="setWorkflowEditorMode('visual')">可视化</button>
+        <button type="button" id="workflowModeCode" onclick="setWorkflowEditorMode('code')">高级代码</button>
+      </div>
+      <div class="form-group">
+        <label>子工作流依赖</label>
+        <div id="workflowDependencies"></div>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="addWorkflowDependency()">＋ 添加依赖</button>
+      </div>
+      <div id="workflowVisualPanel">
+        <div class="visual-workflow-toolbar">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="addVisualNode('agent')">＋ Agent</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="addVisualNode('skill')">＋ Skill</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="addVisualNode('condition')">＋ 条件</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="addVisualNode('tool')">＋ Tool</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="addVisualNode('mcp')">＋ MCP</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="addVisualNode('workflow')">＋ 子工作流</button>
+          <span class="spacer"></span>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="autoLayoutVisualGraph(true)">自动排列</button>
+        </div>
+        <div class="visual-workflow-shell">
+          <div class="visual-workflow-viewport" id="visualWorkflowViewport">
+            <div class="visual-workflow-canvas" id="visualWorkflowCanvas">
+              <svg class="visual-workflow-edges" id="visualWorkflowEdges" aria-hidden="true"></svg>
+              <div id="visualWorkflowNodes"></div>
+            </div>
+          </div>
+          <aside class="visual-inspector" id="visualWorkflowInspector"></aside>
+        </div>
+      </div>
+      <div id="workflowCodePanel" class="form-group"><label>LangGraph 源码</label><textarea id="workflowFormSource" class="workflow-editor" spellcheck="false"></textarea></div>
+      <div id="workflowValidation" class="workflow-validation">尚未验证</div>
+      <div class="form-actions" style="justify-content:space-between">
+        <button type="button" class="btn btn-danger" id="workflowDeleteButton" onclick="deleteWorkflowDraft()" style="display:none">删除草稿</button>
+        <div style="display:flex;gap:8px;margin-left:auto">
+          <button type="button" class="btn btn-ghost" onclick="closeWorkflowModal()">取消</button>
+          <button type="button" class="btn btn-ghost" onclick="validateWorkflowDraft()">静态验证</button>
+          <button type="submit" class="btn btn-primary">保存草稿</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+// ═════════════════════════════════════════════════════════════════════════════
+// 工具函数
+// ═════════════════════════════════════════════════════════════════════════════
+const $ = (s) => document.querySelector(s);
+function esc(s) { return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 标签页切换
+// ═════════════════════════════════════════════════════════════════════════════
+let currentTab = "profiles";
+const TAB_INDEX = { profiles: 0, agents: 1, workspace: 2, marketplace: 3, mcp: 4 };
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll(".tab").forEach((t,i) => t.classList.toggle("active", i === TAB_INDEX[tab]));
+  document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
+  document.getElementById("tab-"+tab).classList.add("active");
+  document.getElementById("btnNewProfile").style.display = tab==="profiles"?"":"none";
+  document.getElementById("btnNewAgent").style.display = tab==="agents"?"":"none";
+  document.getElementById("btnNewThread").style.display = tab==="workspace"?"":"none";
+  document.getElementById("btnNewMcp").style.display = tab==="mcp"?"":"none";
+  // An active SSE request keeps updating the existing workspace DOM while the
+  // tab is hidden. Reloading from the database here would erase that draft
+  // because assistant messages are persisted only after generation finishes.
+  if (tab === "workspace" && !wsStreaming) workspaceInit();
+  if (tab === "marketplace") { loadInstalledSkills(); if (!mpHasSearched) mpSearch(""); }
+  if (tab === "mcp") loadMcpServers();
+}
+window.switchTab = switchTab;
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Toast
+// ═════════════════════════════════════════════════════════════════════════════
+function toast(msg, type) {
+  const el = document.createElement("div");
+  el.className = `toast toast-${type}`;
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ============== API Profile ==============
+// ═════════════════════════════════════════════════════════════════════════════
+let profiles = [];
+
+async function loadProfiles() {
+  try {
+    const res = await fetch("/api/profiles");
+    if (!res.ok) throw new Error(await res.text());
+    profiles = await res.json();
+    renderProfiles();
+  } catch(e) { toast("加载 API 配置失败: "+e.message, "error"); }
+}
+window.loadProfiles = loadProfiles;
+
+function renderProfiles() {
+  const grid = $("#profiles"), empty = $("#empty-profiles");
+  if (!profiles.length) { grid.innerHTML=""; empty.classList.remove("hidden"); return; }
+  empty.classList.add("hidden");
+  grid.innerHTML = profiles.map(p => profileCard(p)).join("");
+}
+
+function profileCard(p) {
+  const db = p.is_default ? '<span class="badge badge-default">默认</span>' : "";
+  const dd = !p.enabled ? '<span class="badge badge-disabled">已停用</span>' : "";
+  const ks = p.provider==="ollama"?'<span style="color:var(--success)">无需 Key</span>':
+    (p.api_key_configured?'<span style="color:var(--success)">Key 已配置</span>':'<span style="color:var(--warning)">Key 未配置</span>');
+  const env = p.provider!=="ollama"?`<div><span>API Key：</span>${p.api_key_configured?"已配置（my_agent_next/.env）":"未配置"}</div>`:"";
+  return `<div class="card${p.is_default?" default":""}${!p.enabled?" disabled":""}">
+    <div class="card-header"><div><div class="card-title">${esc(p.name)}${db}${dd}</div><div class="card-id">${esc(p.id)}</div></div></div>
+    <div class="card-body">
+      <div class="field-row"><div><span>Provider：</span>${esc(p.provider)}</div><div><span>Model：</span>${esc(p.model)}</div></div>
+      ${p.base_url?`<div style="margin-top:4px"><span>URL：</span><code style="font-size:.78rem">${esc(p.base_url)}</code></div>`:""}
+      ${env}
+      <div class="field-row" style="margin-top:8px"><div><span>Temp：</span>${p.temperature}</div><div><span>Timeout：</span>${p.timeout_seconds}s</div><div><span>Retry：</span>${p.max_retries}</div></div>
+      <div style="margin-top:6px">${ks}</div>
+    </div>
+    <div class="card-actions">
+      <button class="btn btn-ghost btn-sm" onclick="speedTest('${p.id}')">⚡ 测速</button>
+      ${!p.is_default?`<button class="btn btn-ghost btn-sm" onclick="setDefault('${p.id}')">⭐ 设默认</button>`:""}
+      <button class="btn btn-ghost btn-sm" onclick="openEditModal('${p.id}')">✏️ 编辑</button>
+      ${!p.is_default?`<button class="btn btn-danger btn-sm" onclick="deleteProfile('${p.id}')">🗑 删除</button>`:""}
+    </div>
+    <div id="speed-${p.id}"></div>
+  </div>`;
+}
+
+// Profile modal
+function openAddModal() {
+  $("#profileModalTitle").textContent="新建 API 配置"; $("#formIsEdit").value=""; $("#formId").disabled=false;
+  $("#formId").value=""; $("#formName").value=""; $("#formProvider").value="openai"; $("#formModel").value="";
+  $("#formBaseUrl").value=""; $("#formApiKey").value=""; $("#formTemperature").value="0.2";
+  $("#formTimeout").value="60"; $("#formMaxRetries").value="2"; $("#formEnabled").checked=true; $("#formIsDefault").checked=false;
+  onProviderChange(); $("#modalProfile").classList.remove("hidden");
+}
+window.openAddModal = openAddModal;
+
+function openEditModal(id) {
+  const p = profiles.find(x=>x.id===id); if(!p) return;
+  $("#profileModalTitle").textContent=`编辑 ${p.id}`; $("#formIsEdit").value=p.id; $("#formId").value=p.id; $("#formId").disabled=true;
+  $("#formName").value=p.name; $("#formProvider").value=p.provider; $("#formModel").value=p.model;
+  $("#formBaseUrl").value=p.base_url||""; $("#formApiKey").value="";
+  $("#formTemperature").value=p.temperature; $("#formTimeout").value=p.timeout_seconds;
+  $("#formMaxRetries").value=p.max_retries; $("#formEnabled").checked=p.enabled; $("#formIsDefault").checked=p.is_default;
+  onProviderChange(); $("#modalProfile").classList.remove("hidden");
+}
+window.openEditModal = openEditModal;
+
+function closeProfileModal() { $("#modalProfile").classList.add("hidden"); }
+window.closeProfileModal = closeProfileModal;
+
+function onProviderChange() {
+  const g = $("#apiKeyEnvGroup"), pv = $("#formProvider").value;
+  g.style.display = pv==="ollama"?"none":"block";
+  $("#formApiKey").required = pv!=="ollama" && !$("#formIsEdit").value;
+}
+window.onProviderChange = onProviderChange;
+
+async function submitProfileForm(e) {
+  e.preventDefault();
+  const p = {
+    id:$("#formId").value.trim(), name:$("#formName").value.trim(), provider:$("#formProvider").value,
+    model:$("#formModel").value.trim(), base_url:$("#formBaseUrl").value.trim(),
+    temperature:parseFloat($("#formTemperature").value)||0.2, timeout_seconds:parseInt($("#formTimeout").value)||60,
+    max_retries:parseInt($("#formMaxRetries").value)||2, enabled:$("#formEnabled").checked, is_default:$("#formIsDefault").checked,
+  };
+  if($("#formProvider").value!=="ollama") p.api_key=$("#formApiKey").value;
+  try {
+    const r = await fetch("/api/profiles",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(p)});
+    if(!r.ok){const e=await r.json();throw new Error(e.detail);}
+    closeProfileModal(); await loadProfiles(); toast(`已保存 ${p.id}`,"success");
+  } catch(e){toast(e.message,"error");}
+}
+window.submitProfileForm = submitProfileForm;
+
+async function deleteProfile(id) {
+  if(!confirm(`确定删除 "${id}"？`)) return;
+  try {
+    const r = await fetch(`/api/profiles/${id}`,{method:"DELETE"});
+    if(!r.ok){const e=await r.json();throw new Error(e.detail);}
+    await loadProfiles(); toast(`已删除 ${id}`,"success");
+  } catch(e){toast(e.message,"error");}
+}
+window.deleteProfile = deleteProfile;
+
+async function setDefault(id) {
+  try {
+    await fetch(`/api/profiles/${id}/set-default`,{method:"POST"});
+    await loadProfiles(); toast(`已将 ${id} 设为默认`,"success");
+  } catch(e){toast("操作失败","error");}
+}
+window.setDefault = setDefault;
+
+async function speedTest(id) {
+  const el = $(`#speed-${id}`); el.innerHTML = '<div class="speed-result speed-running"><span class="speed-dot"></span>测速中…</div>';
+  try {
+    const r = await fetch(`/api/profiles/${id}/speed-test`,{method:"POST"}); const d = await r.json();
+    if(d.success) el.innerHTML=`<div class="speed-result speed-success"><span class="speed-dot"></span>✔ ${d.latency_ms}ms — ${esc(d.response_preview||"")}</div>`;
+    else el.innerHTML=`<div class="speed-result speed-fail"><span class="speed-dot"></span>✘ 失败 (${d.latency_ms}ms)：${esc(d.error||"未知错误")}</div>`;
+  } catch(e){ el.innerHTML=`<div class="speed-result speed-fail"><span class="speed-dot"></span>✘ ${esc(e.message)}</div>`; }
+}
+window.speedTest = speedTest;
+
+$("#modalProfile").addEventListener("click", e => { if(e.target===$("#modalProfile")) closeProfileModal(); });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ============== Agent ==============
+// ═════════════════════════════════════════════════════════════════════════════
+let agents = [];
+let allSkills = [];
+let modelOptions = [];
+
+async function loadAgents() {
+  try {
+    const [aRes, sRes, mRes] = await Promise.all([
+      fetch("/api/agents"), fetch("/api/skills"), fetch("/api/model-options")
+    ]);
+    if (!aRes.ok) throw new Error(await aRes.text());
+    agents = await aRes.json();
+    allSkills = await sRes.json();
+    modelOptions = await mRes.json();
+    renderAgents();
+    populateSkillSuggestions();
+    populateModelSelect();
+  } catch(e) { toast("加载 Agent 失败: "+e.message, "error"); }
+}
+window.loadAgents = loadAgents;
+
+function renderAgents() {
+  const grid = $("#agents"), empty = $("#empty-agents");
+  if (!agents.length) { grid.innerHTML=""; empty.classList.remove("hidden"); return; }
+  empty.classList.add("hidden");
+  grid.innerHTML = agents.map(a => agentCard(a)).join("");
+}
+
+function agentCard(a) {
+  const dd = !a.enabled ? '<span class="badge badge-disabled">已停用</span>' : "";
+  const skillsHtml = a.skills.length
+    ? a.skills.map(s => {
+        const skill = allSkills.find(item => item.name === s);
+        return `<span class="skill-tag">${esc(skill?.display_name || s)}</span>`;
+      }).join("")
+    : '<span class="skill-tag-empty">无 Skill</span>';
+  const modelInfo = a.model_profile_id
+    ? (() => { const m = modelOptions.find(x=>x.id===a.model_profile_id); return m ? `${esc(m.name)} (${esc(m.model)})` : esc(a.model_profile_id); })()
+    : '<span style="color:var(--text-dim)">使用默认配置</span>';
+  return `<div class="card${!a.enabled?" disabled":""}">
+    <div class="card-header"><div><div class="card-title">${esc(a.name)}${dd}</div><div class="card-id">${esc(a.id)}${a.role?" · "+esc(a.role):""}</div></div></div>
+    <div class="card-body">
+      <div><span>模型：</span>${modelInfo}</div>
+      <div style="margin-top:6px"><span>Skill：</span>${skillsHtml}</div>
+      ${a.persona?`<div class="persona-preview">${esc(a.persona)}</div>`:""}
+    </div>
+    <div class="card-actions">
+      <button class="btn btn-ghost btn-sm" onclick="openAgentEditModal('${a.id}')">✏️ 编辑</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteAgent('${a.id}')">🗑 删除</button>
+    </div>
+  </div>`;
+}
+
+// Agent modal — Skills (tag input)
+let agentSkillTags = [];
+
+function populateSkillSuggestions() {
+  const container = $("#skillSuggestions");
+  const existing = agentSkillTags.map(t => t.toLowerCase());
+  const suggestions = allSkills.filter(s => !existing.includes(s.name.toLowerCase()));
+  if (!suggestions.length) { container.innerHTML = ""; return; }
+  container.innerHTML = '<span style="font-weight:600">已有 Skill：</span>' +
+    suggestions.map(s => `<span style="cursor:pointer;color:var(--accent);margin:0 4px" onclick="addSkillFromSuggestion('${esc(s.name)}')">+${esc(s.display_name || s.name)}</span>`).join("");
+}
+
+function addSkillTag(name) {
+  name = (name || $("#skillInput").value.trim());
+  if (!name) return;
+  if (agentSkillTags.includes(name)) { $("#skillInput").value=""; return; }
+  agentSkillTags.push(name);
+  renderSkillTags();
+  $("#skillInput").value = "";
+  populateSkillSuggestions();
+}
+window.addSkillTag = addSkillTag;
+
+function addSkillFromSuggestion(name) {
+  if (!agentSkillTags.includes(name)) {
+    agentSkillTags.push(name);
+    renderSkillTags();
+    populateSkillSuggestions();
+  }
+}
+window.addSkillFromSuggestion = addSkillFromSuggestion;
+
+function removeSkillTag(name) {
+  agentSkillTags = agentSkillTags.filter(t => t !== name);
+  renderSkillTags();
+  populateSkillSuggestions();
+}
+window.removeSkillTag = removeSkillTag;
+
+function renderSkillTags() {
+  const container = $("#skillTags");
+  container.innerHTML = agentSkillTags.map(t => {
+    const skill = allSkills.find(item => item.name === t);
+    const label = skill?.display_name || t;
+    return (
+    `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:999px;font-size:.78rem;font-weight:600;background:rgba(108,140,255,.15);color:var(--accent)">
+      ${esc(label)}<span style="cursor:pointer;opacity:.7" onclick="removeSkillTag('${esc(t)}')">&times;</span>
+    </span>`);
+  }).join("");
+}
+
+function setAgentSkillTags(skills) {
+  agentSkillTags = [...skills];
+  renderSkillTags();
+  populateSkillSuggestions();
+}
+
+function populateModelSelect() {
+  const sel = $("#agentFormModel");
+  sel.innerHTML = '<option value="">使用默认配置</option>' + modelOptions.map(m =>
+    `<option value="${esc(m.id)}">${esc(m.name)} — ${esc(m.provider)} / ${esc(m.model)}</option>`
+  ).join("");
+}
+
+function getAgentSkills() {
+  return [...agentSkillTags];
+}
+
+function openAgentAddModal() {
+  $("#agentModalTitle").textContent = "新建 Agent";
+  $("#agentFormIsEdit").value = "";
+  $("#agentFormId").value = ""; $("#agentFormId").disabled = false;
+  $("#agentFormName").value = ""; $("#agentFormRole").value = "";
+  $("#agentFormPersona").value = ""; $("#agentFormModel").value = "";
+  $("#agentFormEnabled").checked = true;
+  setAgentSkillTags([]);
+  $("#modalAgent").classList.remove("hidden");
+}
+window.openAgentAddModal = openAgentAddModal;
+
+function openAgentEditModal(id) {
+  const a = agents.find(x => x.id === id); if (!a) return;
+  $("#agentModalTitle").textContent = `编辑 ${a.id}`;
+  $("#agentFormIsEdit").value = a.id;
+  $("#agentFormId").value = a.id; $("#agentFormId").disabled = true;
+  $("#agentFormName").value = a.name; $("#agentFormRole").value = a.role || "";
+  $("#agentFormPersona").value = a.persona || ""; $("#agentFormModel").value = a.model_profile_id || "";
+  $("#agentFormEnabled").checked = a.enabled;
+  setAgentSkillTags(a.skills || []);
+  $("#modalAgent").classList.remove("hidden");
+}
+window.openAgentEditModal = openAgentEditModal;
+
+function closeAgentModal() { $("#modalAgent").classList.add("hidden"); }
+window.closeAgentModal = closeAgentModal;
+
+async function submitAgentForm(e) {
+  e.preventDefault();
+  const p = {
+    id: $("#agentFormId").value.trim(), name: $("#agentFormName").value.trim(),
+    role: $("#agentFormRole").value.trim(), persona: $("#agentFormPersona").value.trim(),
+    model_profile_id: $("#agentFormModel").value,     skills: getAgentSkills(),
+    enabled: $("#agentFormEnabled").checked,
+  };
+  try {
+    const r = await fetch("/api/agents", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(p) });
+    if (!r.ok) { const e = await r.json(); throw new Error(e.detail); }
+    closeAgentModal(); await loadAgents(); toast(`已保存 ${p.id}`, "success");
+  } catch(e) { toast(e.message, "error"); }
+}
+window.submitAgentForm = submitAgentForm;
+
+async function deleteAgent(id) {
+  if (!confirm(`确定删除 Agent "${id}"？`)) return;
+  try {
+    const r = await fetch(`/api/agents/${id}`, { method:"DELETE" });
+    if (!r.ok) { const e = await r.json(); throw new Error(e.detail); }
+    await loadAgents(); toast(`已删除 ${id}`, "success");
+  } catch(e) { toast(e.message, "error"); }
+}
+window.deleteAgent = deleteAgent;
+
+$("#modalAgent").addEventListener("click", e => { if (e.target === $("#modalAgent")) closeAgentModal(); });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ============== 权限模式 ==============
+// ═════════════════════════════════════════════════════════════════════════════
+let wsPermissionMode = localStorage.getItem("wsPermissionMode") || "manual";
+
+function setPermissionMode(mode) {
+  wsPermissionMode = mode;
+  localStorage.setItem("wsPermissionMode", mode);
+  document.getElementById("permManual").classList.toggle("active", mode === "manual");
+  document.getElementById("permAuto").classList.toggle("active", mode === "auto");
+}
+window.setPermissionMode = setPermissionMode;
+
+// 初始化权限按钮状态
+setPermissionMode(wsPermissionMode);
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ============== 工具确认弹窗 ==============
+// ═════════════════════════════════════════════════════════════════════════════
+let pendingConfirmId = null;
+let pendingThreadId = null;
+
+function toolConfirmRespond(allowed) {
+  document.getElementById("modalToolConfirm").classList.add("hidden");
+  if (!pendingConfirmId || !pendingThreadId) return;
+  fetch(`/api/chat/threads/${pendingThreadId}/tool-response`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirm_id: pendingConfirmId, allowed }),
+  }).catch(() => {});
+  pendingConfirmId = null;
+  pendingThreadId = null;
+}
+window.toolConfirmRespond = toolConfirmRespond;
+
+function showToolConfirm(threadId, confirmId, toolName, toolArgs, dangerous) {
+  pendingConfirmId = confirmId;
+  pendingThreadId = threadId;
+  document.getElementById("toolConfirmTitle").textContent = dangerous
+    ? "⚠ 危险操作确认" : "工具调用确认";
+  const argsStr = JSON.stringify(toolArgs, null, 2);
+  document.getElementById("toolConfirmBody").innerHTML = `
+    <div style="margin-bottom:8px"><strong>工具：</strong>${esc(toolName)}</div>
+    <div style="background:#11131c;border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;font-family:monospace;font-size:.78rem;white-space:pre-wrap;max-height:200px;overflow-y:auto">${esc(argsStr)}</div>
+    ${dangerous ? '<div style="margin-top:8px;color:var(--danger);font-weight:600">此命令可能具有破坏性，请仔细检查！</div>' : ""}
+  `;
+  document.getElementById("modalToolConfirm").classList.remove("hidden");
+}
+
+// 点击遮罩关闭
+document.getElementById("modalToolConfirm").addEventListener("click", function(e) {
+  if (e.target === this) toolConfirmRespond(false);
+});
+
+// ── ask_user_question ──────────────────────────────────────────────────────
+let pendingAskUserCallId = null;
+let pendingAskUserThreadId = null;
+
+function showAskUser(threadId, callId, questions) {
+  pendingAskUserCallId = callId;
+  pendingAskUserThreadId = threadId;
+  document.getElementById("askUserTitle").textContent = "需要您的输入";
+
+  let html = "";
+  questions.forEach((q, qi) => {
+    const qid = `askuser_q${qi}`;
+    html += `<div style="margin-bottom:16px;padding:12px;background:#11131c;border:1px solid var(--border);border-radius:var(--radius-sm)">`;
+    html += `<div style="font-weight:700;margin-bottom:8px">${esc(q.header || '问题 ' + (qi+1))}</div>`;
+    html += `<div style="color:var(--text-dim);margin-bottom:10px">${esc(q.question)}</div>`;
+    const inputType = q.multiSelect ? "checkbox" : "radio";
+    (q.options || []).forEach((opt, oi) => {
+      const oid = `${qid}_o${oi}`;
+      html += `<label style="display:flex;align-items:center;gap:8px;padding:8px 0;cursor:pointer;border-bottom:1px solid var(--border-light, #2a2d3a);font-size:.82rem">`;
+      html += `<input type="${inputType}" name="${qid}" value="${esc(opt.label)}" data-q="${qi}" data-label="${esc(opt.label)}">`;
+      html += `<div><div>${esc(opt.label)}</div>`;
+      if (opt.description) html += `<div style="color:var(--text-dim);font-size:.75rem">${esc(opt.description)}</div>`;
+      html += `</div></label>`;
+    });
+    html += `</div>`;
+  });
+  document.getElementById("askUserBody").innerHTML = html;
+  document.getElementById("modalAskUser").classList.remove("hidden");
+}
+
+function askUserRespond(skipAnswers) {
+  if (skipAnswers !== null && skipAnswers === null) {
+    // 跳过：不发送答案
+    fetch(`/api/chat/threads/${pendingAskUserThreadId}/question-response`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ call_id: pendingAskUserCallId, answers: [] }),
+    }).catch(() => {});
+  } else {
+    // 收集所有已选中的选项
+    const checked = document.querySelectorAll("#askUserBody input:checked");
+    const answersByQ = {};
+    checked.forEach(cb => {
+      const qIdx = parseInt(cb.dataset.q);
+      if (!answersByQ[qIdx]) answersByQ[qIdx] = [];
+      answersByQ[qIdx].push(cb.dataset.label || cb.value);
+    });
+    const answers = Object.entries(answersByQ).map(([qi, labels]) => ({
+      questionIndex: parseInt(qi),
+      answers: labels,
+    }));
+
+    fetch(`/api/chat/threads/${pendingAskUserThreadId}/question-response`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ call_id: pendingAskUserCallId, answers }),
+    }).catch(() => {});
+  }
+  document.getElementById("modalAskUser").classList.add("hidden");
+  pendingAskUserCallId = null;
+  pendingAskUserThreadId = null;
+}
+
+document.getElementById("modalAskUser").addEventListener("click", function(e) {
+  if (e.target === this) askUserRespond(null);
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ============== MCP 服务 ==============
+let mcpServers = [];
+let mcpInspections = {};
+
+async function loadMcpServers() {
+  const grid = $("#mcpServers"), empty = $("#mcpEmpty");
+  grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:30px;color:var(--text-dim)">加载 MCP 服务…</div>';
+  try {
+    const response = await fetch("/api/mcp/servers");
+    if (!response.ok) throw new Error((await response.json()).detail || "加载失败");
+    mcpServers = await response.json();
+    renderMcpServers();
+  } catch (error) {
+    grid.innerHTML = `<div class="empty-state"><h3>加载失败</h3><p>${esc(error.message)}</p></div>`;
+  }
+}
+
+function renderMcpServers() {
+  const grid = $("#mcpServers"), empty = $("#mcpEmpty");
+  empty.classList.toggle("hidden", mcpServers.length > 0);
+  grid.innerHTML = mcpServers.map(server => {
+    const report = mcpInspections[server.id];
+    const bindings = (server.agent_ids || []).map(id => agents.find(a=>a.id===id)?.name || id).join("、") || "未绑定 Agent";
+    const status = report ? `已连接 · ${report.latency_ms} ms · ${report.tools.length} Tools` : "尚未检查";
+    return `<div class="card" style="grid-column:1/-1">
+      <div class="card-header"><div><div class="card-title">${esc(server.name)}</div><div class="card-subtitle">${esc(server.id)} · ${esc(server.transport)} · ${server.enabled?"已启用":"已停用"}</div></div><span class="badge">${esc(status)}</span></div>
+      <div style="font-size:.78rem;color:var(--text-dim);margin:8px 0">${esc(server.command)} ${esc((server.args||[]).join(" "))}<br>${esc(bindings)}</div>
+      <div class="card-actions"><button class="btn btn-primary btn-sm" onclick="inspectMcpServer('${esc(server.id)}')">连接检查</button><button class="btn btn-ghost btn-sm" onclick="openMcpModal('${esc(server.id)}')">编辑</button><button class="btn btn-danger btn-sm" onclick="deleteMcpServer('${esc(server.id)}')">删除</button></div>
+      <div id="mcpInspect-${esc(server.id)}" style="margin-top:12px">${report?mcpInspectionHtml(server.id,report):""}</div>
+    </div>`;
+  }).join("");
+}
+
+function mcpInspectionHtml(serverId, report) {
+  const tools=(report.tools||[]).map(tool=>`<details class="visual-context"><summary>Tool · ${esc(tool.name)}</summary><div class="visual-context-body"><div class="visual-context-code">${esc(JSON.stringify(tool.inputSchema||{},null,2))}</div><textarea id="mcpToolArgs-${esc(serverId)}-${esc(tool.name)}" rows="2">{}</textarea><button class="btn btn-primary btn-sm" onclick="callMcpTool('${esc(serverId)}','${esc(tool.name)}')">Run Tool</button><pre id="mcpToolResult-${esc(serverId)}-${esc(tool.name)}" class="visual-context-code"></pre></div></details>`).join("");
+  const resources=(report.resources||[]).map(item=>`<details class="visual-context"><summary>Resource · ${esc(item.name)}</summary><div class="visual-context-body"><div>${esc(item.uri)}</div><button class="btn btn-primary btn-sm" onclick="readMcpResource('${esc(serverId)}','${esc(item.uri)}',this)">Read Resource</button><pre class="visual-context-code"></pre></div></details>`).join("");
+  const prompts=(report.prompts||[]).map(item=>{const args=Object.fromEntries((item.arguments||[]).map(arg=>[arg.name,""]));const required=(item.arguments||[]).filter(arg=>arg.required).map(arg=>arg.name);return `<details class="visual-context"><summary>Prompt · ${esc(item.name)}</summary><div class="visual-context-body"><div style="margin-bottom:6px">${esc(item.description||"")}${required.length?`<br><span style="color:var(--warning)">必填参数：${esc(required.join(", "))}</span>`:""}</div><textarea id="mcpPromptArgs-${esc(serverId)}-${esc(item.name)}" rows="2">${esc(JSON.stringify(args,null,2))}</textarea><button class="btn btn-primary btn-sm" onclick="getMcpPrompt('${esc(serverId)}','${esc(item.name)}')">Get Prompt</button><pre id="mcpPromptResult-${esc(serverId)}-${esc(item.name)}" class="visual-context-code"></pre></div></details>`;}).join("");
+  return `<div style="font-size:.78rem;color:var(--text-dim);margin-bottom:8px">协议 ${esc(report.server_info?.protocolVersion||"")} · ${esc(report.server_info?.serverInfo?.name||"")}</div>${tools}${resources}${prompts}`;
+}
+
+async function inspectMcpServer(id){const box=$(`#mcpInspect-${id}`);box.textContent="正在启动并检查…";try{const r=await fetch(`/api/mcp/servers/${id}/inspect`,{method:"POST"});const data=await r.json();if(!r.ok)throw new Error(data.detail||"检查失败");mcpInspections[id]=data;renderMcpServers();toast("MCP 检查成功","success");}catch(e){box.innerHTML=`<div class="badge badge-red">${esc(e.message)}</div>`;}}
+async function callMcpTool(server,tool){const out=$(`#mcpToolResult-${server}-${tool}`);try{const args=JSON.parse($(`#mcpToolArgs-${server}-${tool}`).value||"{}");const r=await fetch(`/api/mcp/servers/${server}/tools/${tool}/call`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({arguments:args})});const data=await r.json();if(!r.ok)throw new Error(data.detail);out.textContent=JSON.stringify(data,null,2);}catch(e){out.textContent=e.message;}}
+async function readMcpResource(server,uri,button){const out=button.nextElementSibling;try{const r=await fetch(`/api/mcp/servers/${server}/resources/read`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({uri})});const data=await r.json();if(!r.ok)throw new Error(data.detail);out.textContent=JSON.stringify(data,null,2);}catch(e){out.textContent=e.message;}}
+async function getMcpPrompt(server,name){const out=$(`#mcpPromptResult-${server}-${name}`);try{const args=JSON.parse($(`#mcpPromptArgs-${server}-${name}`).value||"{}");const r=await fetch(`/api/mcp/servers/${server}/prompts/${name}/get`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({arguments:args})});const data=await r.json();if(!r.ok)throw new Error(data.detail);out.textContent=JSON.stringify(data,null,2);}catch(e){out.textContent=e.message;}}
+
+function openMcpModal(id="") {const server=mcpServers.find(item=>item.id===id);$("#mcpModalTitle").textContent=server?"编辑 MCP 服务":"添加 MCP 服务";$("#mcpFormId").value=server?.id||"";$("#mcpFormId").disabled=!!server;$("#mcpFormName").value=server?.name||"";$("#mcpFormCommand").value=server?.command||"python";$("#mcpFormArgs").value=JSON.stringify(server?.args||[],null,2);$("#mcpFormCwd").value=server?.cwd||".";$("#mcpFormEnv").value=(server?.env_names||[]).join("\n");$("#mcpFormEnabled").checked=server?.enabled!==false;$("#mcpAgentBindings").innerHTML=agents.map(a=>`<label class="check-label"><input type="checkbox" value="${esc(a.id)}" ${(server?.agent_ids||[]).includes(a.id)?"checked":""}> ${esc(a.name)}</label>`).join("");$("#modalMcp").classList.remove("hidden");}
+function closeMcpModal(){$("#modalMcp").classList.add("hidden");}
+async function saveMcpServer(event){event.preventDefault();try{const payload={id:$("#mcpFormId").value,name:$("#mcpFormName").value,transport:"stdio",command:$("#mcpFormCommand").value,args:JSON.parse($("#mcpFormArgs").value||"[]"),cwd:$("#mcpFormCwd").value,env_names:$("#mcpFormEnv").value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean),agent_ids:[...$("#mcpAgentBindings").querySelectorAll("input:checked")].map(x=>x.value),enabled:$("#mcpFormEnabled").checked};const r=await fetch("/api/mcp/servers",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});const data=await r.json();if(!r.ok)throw new Error(data.detail);closeMcpModal();await loadMcpServers();toast("MCP 服务已保存","success");}catch(e){toast(e.message,"error");}}
+async function deleteMcpServer(id){if(!confirm(`删除 MCP 服务 ${id}？`))return;const r=await fetch(`/api/mcp/servers/${id}`,{method:"DELETE"});if(r.ok){delete mcpInspections[id];loadMcpServers();}else toast((await r.json()).detail||"删除失败","error");}
+window.loadMcpServers=loadMcpServers;window.openMcpModal=openMcpModal;window.closeMcpModal=closeMcpModal;window.saveMcpServer=saveMcpServer;window.inspectMcpServer=inspectMcpServer;window.callMcpTool=callMcpTool;window.readMcpResource=readMcpResource;window.getMcpPrompt=getMcpPrompt;window.deleteMcpServer=deleteMcpServer;
+
+// ============== Skill 市场 ==============
+// ═════════════════════════════════════════════════════════════════════════════
+let mpHasSearched = false;
+
+async function mpSearch(query) {
+  const q = query || document.getElementById("mpSearch").value.trim();
+  const source = document.getElementById("mpSource").value || "all";
+  const sort = document.getElementById("mpSort").value || "trending";
+  mpHasSearched = true;
+
+  const grid = document.getElementById("mpResults");
+  const empty = document.getElementById("mpEmpty");
+  grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--text-dim)">搜索中…</div>';
+  empty.classList.add("hidden");
+
+  try {
+    const params = new URLSearchParams({ q, source, page: "1", sort });
+    const res = await fetch(`/api/marketplace/search?${params}`);
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    const items = data.items || [];
+
+    if (!items.length) {
+      grid.innerHTML = "";
+      empty.classList.remove("hidden");
+      empty.querySelector("p").textContent = `未找到与 "${esc(q)}" 相关的 Skill。`;
+      return;
+    }
+
+    empty.classList.add("hidden");
+    grid.innerHTML = items.map(item => mpCard(item)).join("");
+  } catch (e) {
+    grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--danger)">搜索失败: ${esc(e.message)}</div>`;
+  }
+}
+window.mpSearch = mpSearch;
+
+function mpCard(item) {
+  const sourceLabel = item.source === "clawhub" ? "ClawHub" : "SkillsMP";
+  const sourceColor = item.source === "clawhub" ? "var(--accent)" : "var(--success)";
+  const downloads = item.downloads ? `⭐ ${item.downloads}` : "";
+  const githubUrl = encodeURIComponent(item.github_url || "");
+  const ownerHandle = encodeURIComponent(item.owner_handle || "");
+  const actionBtn = item.installed
+    ? '<span style="color:var(--success);font-size:.8rem;font-weight:600">✓ 已安装</span>'
+    : `<button class="btn btn-ghost btn-sm" onclick="mpPreview('${esc(item.source)}','${esc(item.slug)}','${githubUrl}','${ownerHandle}')">预览</button>
+       <button class="btn btn-primary btn-sm" onclick="mpInstall('${esc(item.source)}','${esc(item.slug)}','${esc(item.name)}','${githubUrl}','${ownerHandle}')">安装</button>`;
+
+  return `<div class="card">
+    <div class="card-header">
+      <div>
+        <div class="card-title">${esc(item.name)}</div>
+        <div class="card-id" style="color:${sourceColor};font-weight:600">${sourceLabel} ${downloads}</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <p style="line-height:1.5">${esc(item.description || "暂无描述")}</p>
+      ${item.author ? `<div style="margin-top:4px;font-size:.75rem">作者: ${esc(item.author)}</div>` : ""}
+    </div>
+    <div class="card-actions">${actionBtn}</div>
+  </div>`;
+}
+
+async function mpPreview(source, slug, githubUrl, ownerHandle) {
+  try {
+    const params = new URLSearchParams();
+    if (githubUrl) params.set('url', decodeURIComponent(githubUrl));
+    if (ownerHandle) params.set('owner', decodeURIComponent(ownerHandle));
+    const qs = params.toString();
+    const url = qs
+      ? `/api/marketplace/skill/${source}/${slug}?${qs}`
+      : `/api/marketplace/skill/${source}/${slug}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error((await res.json()).detail || "获取失败");
+    const data = await res.json();
+    const preview = data.content || data.description || "无内容";
+    // 简单弹窗预览
+    const w = window.open("", "_blank", "width=700,height=500");
+    if (w) {
+      w.document.write(`<pre style="padding:20px;font-family:monospace;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word">${esc(preview)}</pre>`);
+    } else {
+      alert("预览内容:\n\n" + preview.substring(0, 1000));
+    }
+  } catch (e) {
+    toast("预览失败: " + e.message, "error");
+  }
+}
+window.mpPreview = mpPreview;
+
+async function mpInstall(source, slug, name, githubUrl, ownerHandle) {
+  if (!confirm(`确定安装 "${name || slug}"？`)) return;
+  try {
+    const body = { source, slug };
+    if (githubUrl) body.github_url = decodeURIComponent(githubUrl);
+    if (ownerHandle) body.owner_handle = decodeURIComponent(ownerHandle);
+    const res = await fetch("/api/marketplace/install", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || "安装失败");
+    const data = await res.json();
+    toast(`已安装 ${data.name}`, "success");
+    // 刷新
+    mpSearch(document.getElementById("mpSearch").value.trim());
+    loadInstalledSkills();
+    loadAgents();
+  } catch (e) {
+    toast("安装失败: " + e.message, "error");
+  }
+}
+window.mpInstall = mpInstall;
+
+async function loadInstalledSkills() {
+  try {
+    const res = await fetch("/api/skills");
+    if (!res.ok) return;
+    const skills = await res.json();
+    document.getElementById("mpInstalledCount").textContent = skills.length;
+
+    const list = document.getElementById("mpInstalledList");
+    const empty = document.getElementById("mpInstalledEmpty");
+
+    if (!skills.length) {
+      list.innerHTML = "";
+      empty.style.display = "block";
+      return;
+    }
+
+    empty.style.display = "none";
+    list.innerHTML = skills.map(s => {
+      const isProtected = ["review-agent","skill-creator","skill-installer","user-memory"].includes(s.name);
+      const c = s.compatibility || {};
+      const labels = {green:"完全兼容", yellow:"部分兼容", red:"很难兼容"};
+      const statusLabel = c.status === "stale" ? "内容已修改，待重扫" : c.status === "unscanned" ? "尚未扫描" : c.status === "missing" ? "文件缺失" : (labels[c.level] || "待扫描");
+      const expanded = localStorage.getItem(`skillExpanded:${s.name}`) === "1";
+      const issues = (c.issues || []).map(i => `<div class="compat-issue"><b>${esc(i.message)}</b><br>${esc(i.suggestion || "")}</div>`).join("");
+      const badge = isProtected
+        ? '<span class="badge" style="background:var(--warning);color:#000;margin-left:6px">系统</span>'
+        : '';
+      return `<div class="card skill-card ${expanded ? "expanded" : ""}" id="skill-card-${esc(s.name)}">
+        <div class="card-header">
+          <div>
+            <div class="card-title">${esc(s.display_name || s.name)}${badge}</div>
+          </div>
+          <div class="skill-card-tools">
+            <span class="skill-compat ${esc(c.level || "")}">${esc(statusLabel)}</span>
+            <button class="skill-icon-btn" title="重新扫描兼容性" onclick="event.stopPropagation();rescanSkillCompatibility('${esc(s.name)}')">↻</button>
+            <button class="skill-icon-btn" title="展开或折叠" onclick="event.stopPropagation();toggleInstalledSkill('${esc(s.name)}')">⌄</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <p class="skill-description ${expanded ? "" : "collapsed"}" style="line-height:1.5">${esc(s.description || "暂无描述")}</p>
+          <div class="skill-details">
+            <div><b>扫描结论：</b>${esc(c.summary || "尚未生成兼容报告")}</div>
+            ${c.score !== undefined ? `<div><b>兼容分数：</b>${esc(c.score)}/100</div>` : ""}
+            <div><b>安全提示：</b>${esc(c.safety_level || "未评估")}</div>
+            ${c.scanned_at ? `<div><b>扫描时间：</b>${esc(c.scanned_at)}</div>` : ""}
+            ${issues || '<div style="margin-top:6px">未发现具体兼容问题。</div>'}
+          </div>
+        </div>
+        <div class="card-actions">
+          <button class="btn btn-ghost btn-sm" onclick="mpPreviewLocal('${esc(s.name)}')">预览</button>
+          ${isProtected
+            ? '<span style="font-size:.72rem;color:var(--text-dim)">内置保护</span>'
+            : `<button class="btn btn-danger btn-sm" onclick="uninstallSkill('${esc(s.name)}')">卸载</button>`}
+        </div>
+      </div>`;
+    }).join("");
+  } catch (e) {}
+}
+window.loadInstalledSkills = loadInstalledSkills;
+
+function toggleInstalledSection() {
+  const list = document.getElementById("mpInstalledList");
+  const empty = document.getElementById("mpInstalledEmpty");
+  const toggle = document.getElementById("mpInstalledToggle");
+  const collapsed = list.style.display !== "none";
+  list.style.display = collapsed ? "none" : "";
+  if (empty) empty.style.display = collapsed ? "none" : empty.style.display;
+  toggle.textContent = collapsed ? "›" : "⌄";
+}
+window.toggleInstalledSection = toggleInstalledSection;
+
+function toggleInstalledSkill(name) {
+  const card = document.getElementById(`skill-card-${name}`);
+  if (!card) return;
+  card.classList.toggle("expanded");
+  localStorage.setItem(`skillExpanded:${name}`, card.classList.contains("expanded") ? "1" : "0");
+  const description = card.querySelector(".skill-description");
+  if (description) description.classList.toggle("collapsed", !card.classList.contains("expanded"));
+}
+window.toggleInstalledSkill = toggleInstalledSkill;
+
+async function rescanSkillCompatibility(name) {
+  const card = document.getElementById(`skill-card-${name}`);
+  const status = card?.querySelector(".skill-compat");
+  if (status) status.textContent = "扫描中…";
+  try {
+    const res = await fetch(`/api/marketplace/skills/${name}/compatibility/scan`, {method:"POST"});
+    if (!res.ok) throw new Error((await res.json()).detail || "扫描失败");
+    await loadInstalledSkills();
+    toast(`已重新扫描 ${name}`, "success");
+  } catch (e) { toast("兼容性扫描失败: " + e.message, "error"); }
+}
+window.rescanSkillCompatibility = rescanSkillCompatibility;
+
+function mpPreviewLocal(name) {
+  // 本地 Skill 预览：打开新窗口展示 SKILL.md
+  const w = window.open("", "_blank", "width=700,height=500");
+  if (w) {
+    w.document.write(`<div style="padding:20px;font-family:monospace;font-size:13px;line-height:1.6;color:#e1e4eb;background:#0f1117;height:100%">加载中...</div>`);
+    fetch(`/api/marketplace/skill/local/${name}`).then(r => r.json()).then(data => {
+      const content = data.content || "无内容";
+      w.document.body.innerHTML = `<pre style="padding:20px;font-family:monospace;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word;color:#e1e4eb;background:#0f1117">${esc(content)}</pre>`;
+    }).catch(() => {
+      w.document.body.innerHTML = '<div style="padding:20px;color:#f44771">加载失败</div>';
+    });
+  }
+}
+window.mpPreviewLocal = mpPreviewLocal;
+
+async function uninstallSkill(name) {
+  if (!confirm(`确定卸载 "${name}"？\n\n此操作将删除 skills/${name}/ 目录。`)) return;
+  try {
+    const res = await fetch(`/api/marketplace/skills/${name}`, { method: "DELETE" });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || "删除失败");
+    }
+    toast(`已卸载 ${name}`, "success");
+    loadInstalledSkills();
+    loadAgents();
+    // 刷新搜索结果（更新已安装状态）
+    if (mpHasSearched) mpSearch(document.getElementById("mpSearch").value.trim());
+  } catch (e) {
+    toast("卸载失败: " + e.message, "error");
+  }
+}
+window.uninstallSkill = uninstallSkill;
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ============== 工作台 ==============
+// ═════════════════════════════════════════════════════════════════════════════
+let wsThreads = [];
+let wsActiveThreadId = null;
+let wsStreaming = false;
+let wsActiveWorkflowRunId = null;
+let wsActiveWorkflowConversationId = null;
+let wsMessageLoadVersion = 0;
+const wsLiveWorkflowRuns = new Map();
+let _wsWorkflows = [];
+let wsPendingAttachments = [];
+
+async function loadWorkspaceWorkflows(preferredId) {
+  try {
+    const response = await fetch("/api/workflows");
+    if (!response.ok) throw new Error("工作流列表加载失败");
+    _wsWorkflows = await response.json();
+    const select = $("#wsWorkflowSelect");
+    const previous = preferredId ?? select.value ?? localStorage.getItem("wsActiveWorkflowId") ?? "";
+    select.innerHTML = '<option value="">未选择工作流</option>' + _wsWorkflows.map(
+      item => `<option value="${esc(item.id)}">${esc(item.name)} (${esc(item.id)})</option>`
+    ).join("");
+    if (previous && _wsWorkflows.some(item => item.id === previous)) select.value = previous;
+    workspaceWorkflowChanged();
+    if (_wsAgents.length) renderWorkspaceConversationChoices();
+  } catch (error) {
+    toast(error.message, "error");
+  }
+}
+
+function workspaceWorkflowChanged() {
+  const id = $("#wsWorkflowSelect").value;
+  $("#wsWorkflowEdit").disabled = !id;
+  if (id) localStorage.setItem("wsActiveWorkflowId", id);
+  else localStorage.removeItem("wsActiveWorkflowId");
+}
+window.workspaceWorkflowChanged = workspaceWorkflowChanged;
+
+function openWorkflowHelp() { $("#modalWorkflowHelp").classList.remove("hidden"); }
+function closeWorkflowHelp() { $("#modalWorkflowHelp").classList.add("hidden"); }
+function openWorkflowCase(workflowId) {
+  if (!_wsWorkflows.some(item => item.id === workflowId)) {
+    toast("案例工作流不存在或已被删除", "error");
+    return;
+  }
+  closeWorkflowHelp();
+  $("#wsWorkflowSelect").value = workflowId;
+  workspaceWorkflowChanged();
+  openWorkflowModal(workflowId);
+}
+window.openWorkflowHelp = openWorkflowHelp;
+window.closeWorkflowHelp = closeWorkflowHelp;
+window.openWorkflowCase = openWorkflowCase;
+$("#modalWorkflowHelp").addEventListener("click", event => {
+  if (event.target === $("#modalWorkflowHelp")) closeWorkflowHelp();
+});
+
+let workflowEditorMode = "visual";
+let workflowVisualEnabled = false;
+let visualGraph = {version:1,nodes:[],edges:[]};
+let visualSelectedNodeId = "";
+let visualSelectedEdgeId = "";
+let visualConnection = null;
+
+function setWorkflowEditorMode(mode) {
+  workflowEditorMode = mode === "code" ? "code" : "visual";
+  if (workflowEditorMode === "visual") workflowVisualEnabled = true;
+  $("#workflowModeVisual").classList.toggle("active", workflowEditorMode === "visual");
+  $("#workflowModeCode").classList.toggle("active", workflowEditorMode === "code");
+  $("#workflowVisualPanel").style.display = workflowEditorMode === "visual" ? "" : "none";
+  $("#workflowCodePanel").style.display = workflowEditorMode === "code" ? "" : "none";
+  if (workflowEditorMode === "visual") renderVisualGraph();
+}
+window.setWorkflowEditorMode = setWorkflowEditorMode;
+
+function visualNodeTypeLabel(type) {
+  return {start:"开始",end:"结束",agent:"Agent",skill:"Skill",condition:"条件",tool:"Tool",mcp:"MCP",workflow:"子工作流"}[type] || type;
+}
+
+function visualNodeDetail(node) {
+  const c = node.config || {};
+  if (node.type === "agent") return c.agent_id || "选择 Agent";
+  if (node.type === "skill") return c.skill_name || "选择 Skill";
+  if (node.type === "condition") return `${c.field || "字段"} · ${c.operator || "truthy"}`;
+  if (node.type === "tool") return c.tool_name || "填写 Tool";
+  if (node.type === "mcp") return `${c.server_id || "选择服务"} · ${c.tool_name || "选择 Tool"}`;
+  if (node.type === "workflow") return c.dependency || "选择依赖";
+  return "";
+}
+
+function renderVisualGraph() {
+  if (!$("#visualWorkflowNodes")) return;
+  const container = $("#visualWorkflowNodes");
+  container.innerHTML = visualGraph.nodes.map(node => {
+    const p = node.position || {x:0,y:0};
+    const canInput = node.type !== "start";
+    const canOutput = node.type !== "end";
+    return `<div class="visual-node${node.id===visualSelectedNodeId?" selected":""}" data-node-id="${esc(node.id)}" data-type="${esc(node.type)}" style="left:${Number(p.x)||0}px;top:${Number(p.y)||0}px">
+      ${canInput?'<span class="visual-port input" title="连接到这里"></span>':""}
+      ${canOutput?'<span class="visual-port output" title="拖动或点击连接下一个模块"></span>':""}
+      <div class="visual-node-type">${esc(visualNodeTypeLabel(node.type))}</div>
+      <div class="visual-node-title">${esc(node.label || node.id)}</div>
+      <div class="visual-node-detail">${esc(visualNodeDetail(node))}</div>
+    </div>`;
+  }).join("");
+  container.querySelectorAll(".visual-node").forEach(element => {
+    const nodeId = element.dataset.nodeId;
+    element.addEventListener("pointerdown", event => beginVisualNodeDrag(event, nodeId));
+    element.addEventListener("click", event => {
+      if (event.target.classList.contains("visual-port")) return;
+      if (visualConnection) finishVisualConnection(nodeId);
+      else selectVisualNode(nodeId);
+    });
+    const output = element.querySelector(".visual-port.output");
+    if (output) output.addEventListener("pointerdown", event => beginVisualConnection(event, nodeId));
+    const input = element.querySelector(".visual-port.input");
+    if (input) input.addEventListener("pointerup", event => { event.stopPropagation(); finishVisualConnection(nodeId); });
+  });
+  renderVisualEdges();
+  renderVisualInspector();
+}
+
+function renderVisualEdges(pointer = null) {
+  const svg = $("#visualWorkflowEdges");
+  if (!svg) return;
+  const nodes = Object.fromEntries(visualGraph.nodes.map(node => [node.id,node]));
+  let html = '<defs><marker id="visualArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#687086"></path></marker></defs>';
+  visualGraph.edges.forEach(edge => {
+    const source = nodes[edge.source], target = nodes[edge.target];
+    if (!source || !target) return;
+    const sw = source.type === "start" || source.type === "end" ? 116 : 170;
+    const tw = target.type === "start" || target.type === "end" ? 116 : 170;
+    const x1 = (source.position?.x||0) + sw, y1 = (source.position?.y||0) + 36;
+    const x2 = (target.position?.x||0), y2 = (target.position?.y||0) + 36;
+    const bend = Math.max(55,Math.abs(x2-x1)*.45);
+    const d = `M ${x1} ${y1} C ${x1+bend} ${y1}, ${x2-bend} ${y2}, ${x2} ${y2}`;
+    html += `<path data-edge-id="${esc(edge.id)}" class="${edge.id===visualSelectedEdgeId?"selected":""}" d="${d}" marker-end="url(#visualArrow)"></path>`;
+    if (edge.branch) html += `<text class="visual-edge-label" x="${(x1+x2)/2}" y="${(y1+y2)/2-7}">${edge.branch==="then"?"是":"否"}</text>`;
+  });
+  if (visualConnection && pointer) {
+    const source = nodes[visualConnection.source];
+    const sw = source.type === "start" ? 116 : 170;
+    const x1=(source.position?.x||0)+sw,y1=(source.position?.y||0)+36;
+    html += `<path d="M ${x1} ${y1} L ${pointer.x} ${pointer.y}" stroke-dasharray="5 5"></path>`;
+  }
+  svg.innerHTML = html;
+  svg.querySelectorAll("path[data-edge-id]").forEach(path => path.addEventListener("click", event => {
+    event.stopPropagation(); visualSelectedEdgeId=path.dataset.edgeId; visualSelectedNodeId=""; renderVisualGraph();
+  }));
+}
+
+function selectVisualNode(nodeId) {
+  visualSelectedNodeId=nodeId; visualSelectedEdgeId=""; renderVisualGraph();
+}
+
+function beginVisualNodeDrag(event,nodeId) {
+  if (event.target.classList.contains("visual-port") || event.button !== 0) return;
+  const node=visualGraph.nodes.find(item=>item.id===nodeId); if(!node)return;
+  const element=event.currentTarget, startX=event.clientX, startY=event.clientY;
+  const origin={x:node.position?.x||0,y:node.position?.y||0};
+  let moved=false;
+  element.setPointerCapture(event.pointerId);
+  const move=e=>{const dx=e.clientX-startX,dy=e.clientY-startY;if(Math.abs(dx)+Math.abs(dy)>4)moved=true;node.position={x:Math.round(origin.x+dx),y:Math.round(origin.y+dy)};element.style.left=node.position.x+"px";element.style.top=node.position.y+"px";renderVisualEdges();};
+  const end=()=>{element.removeEventListener("pointermove",move);element.removeEventListener("pointerup",end);if(moved)node.manual_position=true;};
+  element.addEventListener("pointermove",move); element.addEventListener("pointerup",end);
+}
+
+function beginVisualConnection(event,source) {
+  event.stopPropagation(); event.preventDefault();
+  visualConnection={source};
+  event.currentTarget.classList.add("connecting");
+  const viewport=$("#visualWorkflowViewport"), canvas=$("#visualWorkflowCanvas");
+  const move=e=>{const rect=canvas.getBoundingClientRect();renderVisualEdges({x:e.clientX-rect.left,y:e.clientY-rect.top});};
+  const end=e=>{document.removeEventListener("pointermove",move);document.removeEventListener("pointerup",end);const target=e.target.closest?.(".visual-node")?.dataset.nodeId;if(target)finishVisualConnection(target);else{visualConnection=null;renderVisualGraph();}};
+  document.addEventListener("pointermove",move); document.addEventListener("pointerup",end);
+}
+
+function finishVisualConnection(target) {
+  if(!visualConnection)return;
+  const source=visualConnection.source; visualConnection=null;
+  if(source===target)return renderVisualGraph();
+  const sourceNode=visualGraph.nodes.find(n=>n.id===source),targetNode=visualGraph.nodes.find(n=>n.id===target);
+  if(!sourceNode||!targetNode||sourceNode.type==="end"||targetNode.type==="start")return renderVisualGraph();
+  if(visualGraph.edges.some(edge=>edge.source===source&&edge.target===target))return renderVisualGraph();
+  const outgoing=visualGraph.edges.filter(edge=>edge.source===source);
+  let branch="";
+  if(sourceNode.type==="condition"){
+    branch=outgoing.some(edge=>edge.branch==="then")?"otherwise":"then";
+    if(outgoing.length>=2){toast("条件节点只能有“是”和“否”两个出口","error");return renderVisualGraph();}
+  }else if(outgoing.length){toast("普通节点只能连接一个下游，请添加条件节点","error");return renderVisualGraph();}
+  visualGraph.edges.push({id:`edge_${Date.now()}`,source,target,branch});
+  autoLayoutVisualGraph(false); selectVisualNode(target);
+}
+
+function nextVisualNodeId(type){let i=1,id=type;const ids=new Set(visualGraph.nodes.map(n=>n.id));while(ids.has(id))id=`${type}_${++i}`;return id;}
+function addVisualNode(type) {
+  const id=nextVisualNodeId(type); let config={};
+  if(type==="agent")config={agent_id:agents[0]?.id||"mabel",message:"处理用户请求：{message}",output:"answer"};
+  if(type==="skill")config={skill_name:allSkills[0]?.name||"",arguments:{message:"{message}"},output:`${id}_result`};
+  if(type==="condition")config={field:"answer",operator:"truthy",value:""};
+  if(type==="tool")config={tool_name:"",arguments:{message:"{message}"},output:`${id}_result`};
+  if(type==="mcp")config={server_id:mcpServers[0]?.id||"",tool_name:"",arguments:{},output:`${id}_result`};
+  if(type==="workflow")config={dependency:"",inputs:{message:"{message}"},output:`${id}_result`};
+  visualGraph.nodes.push({id,type,label:visualNodeTypeLabel(type),position:{x:300,y:260},manual_position:false,config});
+  if(visualSelectedNodeId){visualConnection={source:visualSelectedNodeId};finishVisualConnection(id);}else{autoLayoutVisualGraph(false);selectVisualNode(id);}
+}
+window.addVisualNode=addVisualNode;
+
+function autoLayoutVisualGraph(force=false) {
+  const outgoing={}; visualGraph.nodes.forEach(n=>outgoing[n.id]=[]); visualGraph.edges.forEach(e=>outgoing[e.source]?.push(e.target));
+  const start=visualGraph.nodes.find(n=>n.type==="start"); const depth={}; if(start)depth[start.id]=0;
+  const queue=start?[start.id]:[];
+  while(queue.length){const current=queue.shift();for(const next of outgoing[current]||[]){const proposed=(depth[current]||0)+1;if(depth[next]===undefined||proposed<depth[next]){depth[next]=proposed;queue.push(next);}}}
+  let fallback=Math.max(0,...Object.values(depth))+1; visualGraph.nodes.forEach(n=>{if(depth[n.id]===undefined)depth[n.id]=fallback++;});
+  const columns={}; visualGraph.nodes.forEach(n=>(columns[depth[n.id]]??=[]).push(n));
+  Object.entries(columns).forEach(([level,nodes])=>nodes.forEach((node,index)=>{if(force||!node.manual_position){node.position={x:60+Number(level)*230,y:70+index*125};if(force)node.manual_position=false;}}));
+  renderVisualGraph();
+}
+window.autoLayoutVisualGraph=autoLayoutVisualGraph;
+
+function visualAgentContextHTML(node) {
+  const config = node.config || {};
+  const agent = agents.find(item => item.id === config.agent_id);
+  const template = String(config.message || "");
+  const variables = [...template.matchAll(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g)].map(match => match[1]);
+  const uniqueVariables = [...new Set(variables)];
+  const boundSkills = agent?.skills || [];
+  const skillItems = boundSkills.map(name => {
+    const skill = allSkills.find(item => item.name === name);
+    const description = skill?.description ? " - " + esc(String(skill.description).slice(0, 140)) : "";
+    return "<li>" + esc(skill?.display_name || skill?.name || name) + description + "</li>";
+  }).join("") || "<li>未绑定 Skill</li>";
+  const outgoing = {};
+  visualGraph.edges.forEach(edge => (outgoing[edge.source] ??= []).push(edge.target));
+  const start = visualGraph.nodes.find(item => item.type === "start");
+  const route = [];
+  const visited = new Set();
+  let current = start?.id;
+  while (current && !visited.has(current)) {
+    visited.add(current);
+    const item = visualGraph.nodes.find(candidate => candidate.id === current);
+    if (item) route.push(item.label || item.id);
+    if (current === node.id) break;
+    current = (outgoing[current] || [])[0];
+  }
+  const workflowId = $("#workflowFormId")?.value || "未保存工作流";
+  return [
+    '<details class="visual-context"><summary>输入上下文（只读）</summary><div class="visual-context-body">',
+    '<div class="visual-context-section"><strong>当前任务输入</strong><div class="visual-context-code">' + esc(template || "未配置任务模板") + '</div><div>模板变量：' + esc(uniqueVariables.length ? uniqueVariables.join("、") : "无") + '</div></div>',
+    '<div class="visual-context-section"><strong>Agent 身份</strong><div>名称：' + esc(agent?.name || config.agent_id || "未选择") + '</div><div>Agent ID：' + esc(config.agent_id || "未选择") + '</div><div>Persona：' + esc(String(agent?.persona || "未配置").slice(0, 500)) + '</div></div>',
+    '<div class="visual-context-section"><strong>绑定 Skill（运行时会按任务再选择）</strong><ul>' + skillItems + '</ul></div>',
+    '<div class="visual-context-section"><strong>工作流路线</strong><div>' + esc(workflowId) + ' · 当前节点：' + esc(node.id) + '</div><div class="visual-context-code">' + esc(route.length ? route.join(" → ") : "路线尚未连接") + '</div></div>',
+    '<div class="visual-context-section"><strong>运行时注入</strong><div>当前步骤、完整路线、调用深度、权限模式、子工作流依赖，以及模板渲染后的输入。</div></div>',
+    '<div class="visual-context-section"><strong>不会自动注入</strong><div>普通聊天历史、其他节点的完整工具日志、原始 JSONL 日志；只有被模板引用的工作流状态字段会进入任务输入。</div></div>',
+    '</div></details>',
+  ].join("");
+}
+function renderVisualInspector() {
+  const panel=$("#visualWorkflowInspector"); if(!panel)return;
+  const node=visualGraph.nodes.find(item=>item.id===visualSelectedNodeId);
+  if(!node){panel.innerHTML=visualSelectedEdgeId?`<h3>连线</h3><button type="button" class="btn btn-danger btn-sm" onclick="deleteSelectedVisualItem()">删除连线</button>`:'<div class="visual-empty-inspector">选择节点后在这里配置。<br><br>拖动节点可以微调位置；从右侧圆点拖到另一个节点即可连接。</div>';return;}
+  const c=node.config||{};
+  let fields=`<div class="form-group"><label>节点名称</label><input value="${esc(node.label)}" onchange="updateVisualNodeField('label',this.value)"></div>`;
+  if(node.type==="agent")fields+=`<div class="form-group"><label>Agent</label><select onchange="updateVisualConfig('agent_id',this.value)">${agents.map(a=>`<option value="${esc(a.id)}" ${a.id===c.agent_id?"selected":""}>${esc(a.name)}</option>`).join("")}</select></div><div class="form-group"><label>任务模板</label><textarea onchange="updateVisualConfig('message',this.value)">${esc(c.message||"")}</textarea></div><div class="form-group"><label>输出字段</label><input value="${esc(c.output||"")}" onchange="updateVisualConfig('output',this.value)"></div>`;
+  if(node.type==="skill")fields+=`<div class="form-group"><label>Skill</label><select onchange="updateVisualConfig('skill_name',this.value)"><option value="">选择 Skill</option>${allSkills.map(s=>`<option value="${esc(s.name)}" ${s.name===c.skill_name?"selected":""}>${esc(s.display_name||s.name)}</option>`).join("")}</select></div>${visualJsonFields(c,"arguments","参数 JSON")}<div class="form-group"><label>输出字段</label><input value="${esc(c.output||"")}" onchange="updateVisualConfig('output',this.value)"></div>`;
+  if(node.type==="condition")fields+=`<div class="form-group"><label>上下文字段</label><input value="${esc(c.field||"")}" onchange="updateVisualConfig('field',this.value)"></div><div class="form-group"><label>判断</label><select onchange="updateVisualConfig('operator',this.value)">${[["truthy","有值/为真"],["equals","等于"],["not_equals","不等于"],["contains","包含"]].map(([v,l])=>`<option value="${v}" ${v===c.operator?"selected":""}>${l}</option>`).join("")}</select></div><div class="form-group"><label>比较值</label><input value="${esc(c.value??"")}" onchange="updateVisualConfig('value',this.value)"></div>`;
+  if(node.type==="tool")fields+=`<div class="form-group"><label>Tool 名称</label><input value="${esc(c.tool_name||"")}" onchange="updateVisualConfig('tool_name',this.value)"></div>${visualJsonFields(c,"arguments","参数 JSON")}<div class="form-group"><label>输出字段</label><input value="${esc(c.output||"")}" onchange="updateVisualConfig('output',this.value)"></div>`;
+  if(node.type==="mcp")fields+=`<div class="form-group"><label>MCP Server</label><select onchange="updateVisualConfig('server_id',this.value)"><option value="">选择服务</option>${mcpServers.filter(s=>s.enabled).map(s=>`<option value="${esc(s.id)}" ${s.id===c.server_id?"selected":""}>${esc(s.name)}</option>`).join("")}</select></div><div class="form-group"><label>MCP Tool 名称</label><input value="${esc(c.tool_name||"")}" placeholder="get_current_time" onchange="updateVisualConfig('tool_name',this.value)"></div>${visualJsonFields(c,"arguments","参数 JSON")}<div class="form-group"><label>输出字段</label><input value="${esc(c.output||"")}" onchange="updateVisualConfig('output',this.value)"></div>`;
+  if(node.type==="workflow")fields+=`<div class="form-group"><label>依赖键</label><input value="${esc(c.dependency||"")}" onchange="updateVisualConfig('dependency',this.value)"></div>${visualJsonFields(c,"inputs","输入 JSON")}<div class="form-group"><label>输出字段</label><input value="${esc(c.output||"")}" onchange="updateVisualConfig('output',this.value)"></div>`;
+  if(node.type==="agent")fields+=visualAgentContextHTML(node);
+  const removable=!['start','end'].includes(node.type);
+  panel.innerHTML=`<h3>${esc(visualNodeTypeLabel(node.type))} 配置</h3>${fields}${removable?'<button type="button" class="btn btn-danger btn-sm" onclick="deleteSelectedVisualItem()">删除节点</button>':""}`;
+}
+function visualJsonFields(config,key,label){return `<div class="form-group"><label>${label}</label><textarea onchange="updateVisualJsonConfig('${key}',this.value)">${esc(JSON.stringify(config[key]||{},null,2))}</textarea></div>`;}
+function updateVisualNodeField(key,value){const n=visualGraph.nodes.find(n=>n.id===visualSelectedNodeId);if(n){n[key]=value;renderVisualGraph();}}
+function updateVisualConfig(key,value){const n=visualGraph.nodes.find(n=>n.id===visualSelectedNodeId);if(n){n.config??={};n.config[key]=value;renderVisualGraph();}}
+function updateVisualJsonConfig(key,value){try{const parsed=JSON.parse(value);updateVisualConfig(key,parsed);}catch(error){toast("JSON 格式错误："+error.message,"error");}}
+function deleteSelectedVisualItem(){if(visualSelectedEdgeId){visualGraph.edges=visualGraph.edges.filter(e=>e.id!==visualSelectedEdgeId);visualSelectedEdgeId="";}else if(visualSelectedNodeId){visualGraph.nodes=visualGraph.nodes.filter(n=>n.id!==visualSelectedNodeId);visualGraph.edges=visualGraph.edges.filter(e=>e.source!==visualSelectedNodeId&&e.target!==visualSelectedNodeId);visualSelectedNodeId="";}autoLayoutVisualGraph(false);}
+window.updateVisualNodeField=updateVisualNodeField;window.updateVisualConfig=updateVisualConfig;window.updateVisualJsonConfig=updateVisualJsonConfig;window.deleteSelectedVisualItem=deleteSelectedVisualItem;
+
+async function openWorkflowModal(workflowId = "") {
+  if (!mcpServers.length) await loadMcpServers();
+  $("#workflowForm").reset();
+  $("#workflowDependencies").innerHTML = "";
+  renderWorkflowValidation(null);
+  const editing = Boolean(workflowId);
+  $("#workflowFormIsEdit").value = editing ? "1" : "";
+  $("#workflowFormId").disabled = editing;
+  $("#workflowDeleteButton").style.display = editing ? "" : "none";
+  $("#workflowModalTitle").textContent = editing ? "编辑工作流草稿" : "新建工作流草稿";
+  try {
+    if (editing) {
+      const response = await fetch(`/api/workflows/${workflowId}`);
+      if (!response.ok) throw new Error((await response.json()).detail || "工作流加载失败");
+      const item = await response.json();
+      $("#workflowFormId").value = item.id;
+      $("#workflowFormName").value = item.name;
+      $("#workflowFormDescription").value = item.description;
+      $("#workflowFormSource").value = item.draft_source;
+      workflowVisualEnabled = Boolean(item.visual_graph);
+      visualGraph = item.visual_graph || (await (await fetch("/api/workflows/visual-template")).json()).visual_graph;
+      setWorkflowEditorMode(item.editor_mode || "code");
+      item.dependencies.forEach(dependency => addWorkflowDependency(dependency));
+      renderWorkflowValidation(item.validation);
+    } else {
+      const [codeResponse,visualResponse] = await Promise.all([fetch("/api/workflows/template"),fetch("/api/workflows/visual-template")]);
+      if (!codeResponse.ok || !visualResponse.ok) throw new Error("模板加载失败");
+      $("#workflowFormSource").value = (await codeResponse.json()).draft_source;
+      visualGraph = (await visualResponse.json()).visual_graph;
+      workflowVisualEnabled = true;
+      setWorkflowEditorMode("visual");
+    }
+    $("#modalWorkflow").classList.remove("hidden");
+  } catch (error) { toast(error.message, "error"); }
+}
+window.openWorkflowModal = openWorkflowModal;
+
+function editSelectedWorkflow() {
+  const id = $("#wsWorkflowSelect").value;
+  if (id) openWorkflowModal(id);
+}
+window.editSelectedWorkflow = editSelectedWorkflow;
+
+function closeWorkflowModal() { $("#modalWorkflow").classList.add("hidden"); }
+window.closeWorkflowModal = closeWorkflowModal;
+
+function addWorkflowDependency(dependency = {}) {
+  const row = document.createElement("div");
+  row.className = "workflow-dependency-row";
+  const choices = _wsWorkflows
+    .filter(item => item.id !== $("#workflowFormId").value)
+    .map(item => `<option value="${esc(item.id)}" ${item.id === dependency.target_workflow_id ? "selected" : ""}>${esc(item.name)} (${esc(item.id)})</option>`)
+    .join("");
+  row.innerHTML = `<input class="workflow-dependency-key" placeholder="依赖键" value="${esc(dependency.key || "")}" pattern="[a-z][a-z0-9_-]{1,63}" required>
+    <select class="workflow-dependency-target" required><option value="">选择目标工作流</option>${choices}</select>
+    <button type="button" class="btn btn-ghost btn-sm" title="移除依赖">×</button>`;
+  row.querySelector("button").onclick = () => row.remove();
+  $("#workflowDependencies").appendChild(row);
+}
+window.addWorkflowDependency = addWorkflowDependency;
+
+function workflowPayload() {
+  return {
+    id: $("#workflowFormId").value.trim(),
+    name: $("#workflowFormName").value.trim(),
+    description: $("#workflowFormDescription").value.trim(),
+    draft_source: $("#workflowFormSource").value,
+    editor_mode: workflowEditorMode,
+    visual_graph: workflowVisualEnabled && visualGraph?.nodes?.length ? visualGraph : null,
+    dependencies: [...document.querySelectorAll(".workflow-dependency-row")].map(row => ({
+      key: row.querySelector(".workflow-dependency-key").value.trim(),
+      target_workflow_id: row.querySelector(".workflow-dependency-target").value,
+    })),
+  };
+}
+
+function renderWorkflowValidation(validation) {
+  const element = $("#workflowValidation");
+  element.className = "workflow-validation";
+  if (!validation) { element.textContent = "尚未验证"; return; }
+  element.classList.add(validation.valid ? "valid" : "invalid");
+  if (validation.valid) {
+    element.textContent = `验证通过${validation.imports.length ? " · 导入：" + validation.imports.join(", ") : ""}`;
+    return;
+  }
+  element.innerHTML = validation.issues.map(issue =>
+    `${issue.line ? `第 ${issue.line} 行：` : ""}${esc(issue.message)} <span style="opacity:.7">[${esc(issue.code)}]</span>`
+  ).join("<br>");
+}
+
+async function validateWorkflowDraft() {
+  try {
+    const isVisual=workflowEditorMode==="visual";
+    const response = await fetch(isVisual?"/api/workflows/compile-visual":"/api/workflows/validate", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify(isVisual?{visual_graph:visualGraph}:{draft_source:$("#workflowFormSource").value}),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail || "验证失败");
+    if(isVisual&&result.draft_source)$("#workflowFormSource").value=result.draft_source;
+    renderWorkflowValidation(isVisual?result.validation:result);
+  } catch (error) { toast(error.message, "error"); }
+}
+window.validateWorkflowDraft = validateWorkflowDraft;
+
+async function saveWorkflowDraft(event) {
+  event.preventDefault();
+  const payload = workflowPayload();
+  const editing = Boolean($("#workflowFormIsEdit").value);
+  try {
+    const response = await fetch(editing ? `/api/workflows/${payload.id}` : "/api/workflows", {
+      method: editing ? "PUT" : "POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail || "保存失败");
+    renderWorkflowValidation(result.validation);
+    await loadWorkspaceWorkflows(result.id);
+    closeWorkflowModal();
+    toast(result.validation.valid ? "工作流草稿已保存，静态验证通过" : "草稿已保存，但仍有验证问题", result.validation.valid ? "success" : "error");
+  } catch (error) { toast(error.message, "error"); }
+}
+window.saveWorkflowDraft = saveWorkflowDraft;
+
+async function deleteWorkflowDraft() {
+  const id = $("#workflowFormId").value;
+  if (!id || !confirm(`确定删除工作流草稿“${id}”吗？`)) return;
+  try {
+    const response = await fetch(`/api/workflows/${id}`, {method:"DELETE"});
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail || "删除失败");
+    closeWorkflowModal();
+    await loadWorkspaceWorkflows("");
+    toast("工作流草稿已删除", "success");
+  } catch (error) { toast(error.message, "error"); }
+}
+window.deleteWorkflowDraft = deleteWorkflowDraft;
+$("#modalWorkflow").addEventListener("click", event => { if (event.target === $("#modalWorkflow")) closeWorkflowModal(); });
+
+let _wsAgents = [];
+async function workspaceInit() {
+  await loadWorkspaceWorkflows();
+  try {
+    const res = await fetch("/api/agents");
+    if (!res.ok) return;
+    _wsAgents = await res.json();
+    renderWorkspaceConversationChoices();
+  } catch(e) {}
+}
+window.workspaceInit = workspaceInit;
+
+function workspaceSelection() {
+  const value = $("#wsConversationSelect").value;
+  const separator = value.indexOf(":");
+  return separator < 0 ? {type:"", id:""} : {type:value.slice(0, separator), id:value.slice(separator + 1)};
+}
+
+function workspaceThreadStorageKey(selection = workspaceSelection()) {
+  if (!selection.id) return "wsActiveThreadId";
+  return `wsActiveThreadId:${selection.type}:${selection.id}`;
+}
+
+const WORKFLOW_TIMEOUT_DEFAULT = 300;
+const WORKFLOW_TIMEOUT_MIN = 1;
+const WORKFLOW_TIMEOUT_MAX = 1800;
+const WORKFLOW_AGENT_ITERATIONS_DEFAULT = 60;
+const WORKFLOW_AGENT_ITERATIONS_MIN = 1;
+const WORKFLOW_AGENT_ITERATIONS_MAX = 200;
+const AGENT_ITERATIONS_DEFAULT = 60;
+
+function normalizedWorkflowTimeout(value) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return WORKFLOW_TIMEOUT_DEFAULT;
+  return Math.max(WORKFLOW_TIMEOUT_MIN, Math.min(WORKFLOW_TIMEOUT_MAX, parsed));
+}
+
+function workflowTimeoutStorageKey(workflowId) {
+  return `workflowTimeoutSeconds:${workflowId}`;
+}
+
+function normalizedWorkflowAgentIterations(value) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return WORKFLOW_AGENT_ITERATIONS_DEFAULT;
+  return Math.max(WORKFLOW_AGENT_ITERATIONS_MIN, Math.min(WORKFLOW_AGENT_ITERATIONS_MAX, parsed));
+}
+
+function workflowAgentIterationsStorageKey(workflowId) {
+  return `workflowAgentIterations:${workflowId}`;
+}
+
+function currentWorkflowAgentIterations() {
+  const workflowId = workspaceSelection().id;
+  if (!workflowId) return WORKFLOW_AGENT_ITERATIONS_DEFAULT;
+  return normalizedWorkflowAgentIterations(
+    localStorage.getItem(workflowAgentIterationsStorageKey(workflowId))
+  );
+}
+
+function currentWorkflowTimeout() {
+  const workflowId = workspaceSelection().id;
+  if (!workflowId) return WORKFLOW_TIMEOUT_DEFAULT;
+  return normalizedWorkflowTimeout(localStorage.getItem(workflowTimeoutStorageKey(workflowId)));
+}
+
+function syncWorkflowRuntimeSettings() {
+  const selection = workspaceSelection();
+  const section = $("#wsWorkflowRuntimeSettings");
+  section.style.display = selection.type === "workflow" ? "" : "none";
+  $("#wsAgentRuntimeSettings").style.display = selection.type === "agent" ? "" : "none";
+  if (selection.type === "workflow") {
+    $("#wsWorkflowTimeout").value = currentWorkflowTimeout();
+    $("#wsWorkflowAgentIterations").value = currentWorkflowAgentIterations();
+  }
+  if (selection.type === "agent") {
+    $("#wsAgentIterations").value = currentAgentIterations();
+  }
+}
+
+function agentIterationsStorageKey(agentId) {
+  return `agentIterations:${agentId}`;
+}
+
+function currentAgentIterations() {
+  const selection = workspaceSelection();
+  if (selection.type !== "agent" || !selection.id) return AGENT_ITERATIONS_DEFAULT;
+  return normalizedWorkflowAgentIterations(
+    localStorage.getItem(agentIterationsStorageKey(selection.id))
+  );
+}
+
+function saveAgentIterations(value) {
+  const selection = workspaceSelection();
+  if (selection.type !== "agent" || !selection.id) return;
+  const normalized = normalizedWorkflowAgentIterations(value);
+  $("#wsAgentIterations").value = normalized;
+  localStorage.setItem(agentIterationsStorageKey(selection.id), String(normalized));
+}
+window.saveAgentIterations = saveAgentIterations;
+
+function saveWorkflowTimeout(value) {
+  const selection = workspaceSelection();
+  if (selection.type !== "workflow" || !selection.id) return;
+  const normalized = normalizedWorkflowTimeout(value);
+  $("#wsWorkflowTimeout").value = normalized;
+  localStorage.setItem(workflowTimeoutStorageKey(selection.id), String(normalized));
+}
+window.saveWorkflowTimeout = saveWorkflowTimeout;
+
+function saveWorkflowAgentIterations(value) {
+  const selection = workspaceSelection();
+  if (selection.type !== "workflow" || !selection.id) return;
+  const normalized = normalizedWorkflowAgentIterations(value);
+  $("#wsWorkflowAgentIterations").value = normalized;
+  localStorage.setItem(
+    workflowAgentIterationsStorageKey(selection.id),
+    String(normalized),
+  );
+}
+window.saveWorkflowAgentIterations = saveWorkflowAgentIterations;
+
+function renderWorkspaceConversationChoices() {
+  const select = $("#wsConversationSelect");
+  const legacyAgentId = localStorage.getItem("wsActiveAgentId");
+  const previous = select.value || localStorage.getItem("wsActiveConversation") || (legacyAgentId ? `agent:${legacyAgentId}` : "");
+  const agentOptions = _wsAgents.filter(agent => agent.enabled).map(
+    agent => `<option value="agent:${esc(agent.id)}">${esc(agent.name)} (${esc(agent.id)})</option>`
+  ).join("");
+  const workflowOptions = _wsWorkflows.map(
+    workflow => `<option value="workflow:${esc(workflow.id)}">${esc(workflow.name)} (${esc(workflow.id)})</option>`
+  ).join("");
+  select.innerHTML = '<option value="">-- 请选择 --</option>' +
+    (agentOptions ? `<optgroup label="Agent">${agentOptions}</optgroup>` : "") +
+    (workflowOptions ? `<optgroup label="工作流">${workflowOptions}</optgroup>` : "");
+  if ([...select.options].some(option => option.value === previous)) select.value = previous;
+  localStorage.removeItem("wsActiveAgentId");
+  workspaceOnConversationChange();
+}
+
+async function workspaceOnConversationChange() {
+  const selection = workspaceSelection();
+  workspaceClearAttachments(true);
+  $("#wsAttachButton").disabled = selection.type === "workflow";
+  $("#wsAttachButton").title = selection.type === "workflow" ? "工作流暂不支持图片" : "添加图片";
+  wsMessageLoadVersion++;
+  syncWorkflowRuntimeSettings();
+  wsThreads = [];
+  wsActiveThreadId = null;
+  if (!selection.id) {
+    localStorage.removeItem("wsActiveConversation");
+    $("#wsThreadList").innerHTML = '<div class="ws-empty-threads">请先选择 Agent 或工作流</div>';
+    workspaceShowPlaceholder();
+    return;
+  }
+  localStorage.setItem("wsActiveConversation", `${selection.type}:${selection.id}`);
+  if (selection.type === "workflow") {
+    const workflow = _wsWorkflows.find(item => item.id === selection.id);
+    try {
+      const response = await fetch(`/api/workflows/${selection.id}/threads`);
+      if (!response.ok) throw new Error("工作流对话加载失败");
+      wsThreads = await response.json();
+      workspaceRenderThreadList();
+      const savedThread = localStorage.getItem(workspaceThreadStorageKey(selection))
+        || localStorage.getItem("wsActiveThreadId");
+      if (savedThread && wsThreads.some(thread => thread.id === savedThread)) {
+        wsActiveWorkflowConversationId = savedThread;
+        workspaceOpenThread(savedThread);
+      } else {
+        wsActiveWorkflowConversationId = null;
+        workspaceShowPlaceholder(false);
+        $("#wsPlaceholder h3").textContent = workflow?.name || "工作流";
+        $("#wsPlaceholder p").textContent = workflow?.validation?.valid
+          ? "新建对话后即可运行工作流"
+          : "草稿存在验证问题，请先在工作流配置中修正";
+        $("#wsInputArea").style.display = "none";
+      }
+    } catch(error) { toast(error.message, "error"); }
+    return;
+  }
+  $("#wsInput").disabled = false;
+  $("#wsPlaceholder h3").textContent = "工作台";
+  $("#wsPlaceholder p").textContent = "选择对话后开始交流";
+  try {
+    const res = await fetch(`/api/chat/threads?agent_id=${selection.id}`);
+    wsThreads = await res.json();
+    workspaceRenderThreadList();
+    const savedThread = localStorage.getItem(workspaceThreadStorageKey(selection))
+      || localStorage.getItem("wsActiveThreadId");
+    if (savedThread && wsThreads.some(t => t.id === savedThread)) {
+      workspaceOpenThread(savedThread);
+    } else {
+      workspaceShowPlaceholder();
+    }
+  } catch(e) {}
+}
+window.workspaceOnConversationChange = workspaceOnConversationChange;
+
+function workspaceRenderThreadList() {
+  const container = $("#wsThreadList");
+  if (!wsThreads.length) {
+    container.innerHTML = '<div class="ws-empty-threads">暂无对话，点击上方按钮新建</div>';
+    return;
+  }
+  container.innerHTML = wsThreads.map(t => {
+    const activeClass = wsActiveThreadId === t.id ? " active" : "";
+    const date = t.updated_at ? t.updated_at.slice(0, 16).replace("T", " ").slice(5) : "";
+    return `<div class="ws-thread-item${activeClass}" onclick="workspaceOpenThread('${t.id}')">
+      <div class="t-title">${esc(t.title || "新对话")}</div>
+      <div class="t-meta">
+        <span>${date}</span>
+        <span class="t-delete" onclick="event.stopPropagation();workspaceDeleteThread('${t.id}')">🗑</span>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+async function workspaceNewThread() {
+  const selection = workspaceSelection();
+  if (!selection.id) { toast("请先选择 Agent 或工作流", "error"); return; }
+  if (selection.type === "workflow") {
+    await workspaceStartWorkflowConversation();
+    return;
+  }
+  try {
+    const res = await fetch("/api/chat/threads", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({agent_id: selection.id, title: ""}),
+    });
+    if (!res.ok) throw new Error((await res.json()).detail);
+    const thread = await res.json();
+    wsThreads.unshift(thread);
+    workspaceOpenThread(thread.id);
+  } catch(e) { toast("创建失败: "+e.message, "error"); }
+}
+window.workspaceNewThread = workspaceNewThread;
+
+async function workspaceStartWorkflowConversation(title = "") {
+  if (wsStreaming) { toast("请先停止当前运行", "error"); return; }
+  const workflow = _wsWorkflows.find(item => item.id === workspaceSelection().id);
+  if (!workflow) { toast("请先选择工作流", "error"); return; }
+  try {
+    const response = await fetch(`/api/workflows/${workflow.id}/threads`, {
+      method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({title}),
+    });
+    if (!response.ok) throw new Error((await response.json()).detail || "创建失败");
+    const thread = await response.json();
+    wsThreads.unshift(thread);
+    wsActiveWorkflowConversationId = thread.id;
+    workspaceOpenThread(thread.id);
+  } catch(error) { toast("创建工作流对话失败：" + error.message, "error"); }
+}
+
+async function workspaceOpenThread(id) {
+  wsActiveThreadId = id;
+  const selection = workspaceSelection();
+  if (selection.type === "workflow") wsActiveWorkflowConversationId = id;
+  localStorage.setItem(workspaceThreadStorageKey(selection), id);
+  localStorage.setItem("wsActiveThreadId", id);
+  workspaceRenderThreadList();
+  workspaceLoadMessages(id);
+}
+window.workspaceOpenThread = workspaceOpenThread;
+
+async function workspaceDeleteThread(id) {
+  if (!confirm("删除此对话？消息也将一并删除。")) return;
+  try {
+    await fetch(`/api/chat/threads/${id}`, {method:"DELETE"});
+    wsThreads = wsThreads.filter(t => t.id !== id);
+    if (wsActiveThreadId === id) {
+      wsActiveThreadId = null;
+      if (workspaceSelection().type === "workflow") wsActiveWorkflowConversationId = null;
+      localStorage.removeItem(workspaceThreadStorageKey());
+      localStorage.removeItem("wsActiveThreadId");
+      workspaceShowPlaceholder();
+    }
+    workspaceRenderThreadList();
+  } catch(e) { toast("删除失败", "error"); }
+}
+window.workspaceDeleteThread = workspaceDeleteThread;
+
+async function workspaceLoadMessages(threadId) {
+  const loadVersion = ++wsMessageLoadVersion;
+  try {
+    const res = await fetch(`/api/chat/threads/${threadId}`);
+    if (!res.ok) throw new Error(await res.text());
+    const thread = await res.json();
+    if (loadVersion !== wsMessageLoadVersion) return;
+
+    $("#wsPlaceholder").style.display = "none";
+    $("#wsMessages").style.display = "block";
+    $("#wsInputArea").style.display = "flex";
+    $("#wsInput").disabled = wsStreaming;
+
+    const msgs = thread.messages || [];
+    $("#wsMessages").innerHTML = msgs.length
+      ? msgs.map(m => workspaceMsgHTML(m)).join("")
+      : "";
+    const liveRun = wsLiveWorkflowRuns.get(threadId);
+    if (liveRun?.element && !liveRun.element.isConnected) {
+      $("#wsMessages").appendChild(liveRun.element);
+    }
+    // 滚动到底部
+    $("#wsMessages").scrollTop = $("#wsMessages").scrollHeight;
+    if (!wsStreaming) $("#wsInput").focus();
+  } catch(e) { toast("加载消息失败: "+e.message, "error"); }
+}
+
+function workspaceMsgHTML(m) {
+  const selection = workspaceSelection();
+  const workflow = _wsWorkflows.find(item => item.id === selection.id);
+  const label = m.role === "user" ? "用户" : (selection.type === "workflow" ? workflow?.name : _wsAgents.find(a => a.id === selection.id)?.name) || "AI";
+  const images = (m.attachments||[]).map(item=>`<img src="${esc(item.url)}" alt="${esc(item.original_name||"图片")}" onclick="workspacePreviewImage('${esc(item.url)}')">`).join("");
+  return `<div class="ws-msg ${m.role}">
+    <div class="ws-msg-label">${label}</div>
+    <div class="ws-msg-bubble">${images?`<div class="ws-msg-images">${images}</div>`:""}${esc(m.content)}</div>
+  </div>`;
+}
+
+function workspacePreviewImage(url) {
+  const overlay=document.createElement("div");
+  overlay.className="modal-overlay";
+  overlay.innerHTML=`<div style="position:relative;max-width:92vw;max-height:92vh"><img src="${esc(url)}" style="display:block;max-width:92vw;max-height:92vh;object-fit:contain"><button class="btn btn-ghost" style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,.7)" aria-label="关闭">×</button></div>`;
+  overlay.onclick=()=>overlay.remove();
+  overlay.querySelector("img").onclick=event=>event.stopPropagation();
+  overlay.querySelector("button").onclick=()=>overlay.remove();
+  document.body.appendChild(overlay);
+}
+window.workspacePreviewImage=workspacePreviewImage;
+
+function renderWorkspaceAttachments() {
+  $("#wsAttachmentTray").innerHTML=wsPendingAttachments.map((item,index)=>`<div class="ws-attachment ${item.uploading?"uploading":""}"><img src="${esc(item.url)}" alt="${esc(item.original_name||"待发送图片")}"><button onclick="workspaceRemoveAttachment(${index})" aria-label="删除图片">×</button></div>`).join("");
+}
+
+async function workspaceChooseAttachments(fileList) {
+  if (!wsActiveThreadId || workspaceSelection().type !== "agent") { toast("请先打开一个 Agent 对话","error"); return; }
+  const files=[...fileList];
+  if (!files.length) return;
+  if (wsPendingAttachments.length+files.length>6) { toast("每条消息最多 6 张图片","error"); return; }
+  const allowed=new Set(["image/png","image/jpeg","image/webp","image/gif"]);
+  if(files.some(file=>!allowed.has(file.type)||file.size>10*1024*1024)){toast("仅支持 10 MB 内的 PNG、JPEG、WebP 或 GIF","error");return;}
+  const drafts=files.map(file=>({uploading:true,url:URL.createObjectURL(file),original_name:file.name,file}));
+  wsPendingAttachments.push(...drafts); renderWorkspaceAttachments();
+  const body=new FormData(); files.forEach(file=>body.append("files",file));
+  try {
+    const response=await fetch(`/api/chat/threads/${wsActiveThreadId}/attachments`,{method:"POST",body});
+    const data=await response.json();
+    if(!response.ok)throw new Error(data.detail||"图片上传失败");
+    drafts.forEach((draft,index)=>{URL.revokeObjectURL(draft.url);Object.assign(draft,data[index],{uploading:false,file:null});});
+    renderWorkspaceAttachments();
+  } catch(error) {
+    drafts.forEach(draft=>{URL.revokeObjectURL(draft.url);wsPendingAttachments=wsPendingAttachments.filter(item=>item!==draft);});
+    renderWorkspaceAttachments(); toast(error.message,"error");
+  }
+}
+window.workspaceChooseAttachments=workspaceChooseAttachments;
+
+async function workspaceRemoveAttachment(index) {
+  const [item]=wsPendingAttachments.splice(index,1); renderWorkspaceAttachments();
+  if(item?.url?.startsWith("blob:"))URL.revokeObjectURL(item.url);
+  if(item?.id&&wsActiveThreadId)fetch(`/api/chat/threads/${wsActiveThreadId}/attachments/${item.id}`,{method:"DELETE"}).catch(()=>{});
+}
+window.workspaceRemoveAttachment=workspaceRemoveAttachment;
+
+function workspaceClearAttachments(deleteRemote=false) {
+  const items=wsPendingAttachments; wsPendingAttachments=[]; renderWorkspaceAttachments();
+  items.forEach(item=>{if(item.url?.startsWith("blob:"))URL.revokeObjectURL(item.url);if(deleteRemote&&item.id&&wsActiveThreadId)fetch(`/api/chat/threads/${wsActiveThreadId}/attachments/${item.id}`,{method:"DELETE"}).catch(()=>{});});
+}
+
+const wsChatElement=$("#wsChat");
+wsChatElement.addEventListener("dragover",event=>{event.preventDefault();wsChatElement.classList.add("dragging");});
+wsChatElement.addEventListener("dragleave",()=>wsChatElement.classList.remove("dragging"));
+wsChatElement.addEventListener("drop",event=>{event.preventDefault();wsChatElement.classList.remove("dragging");workspaceChooseAttachments([...event.dataTransfer.files].filter(file=>file.type.startsWith("image/")));});
+$("#wsInput").addEventListener("paste",event=>{const files=[...event.clipboardData.items].filter(item=>item.kind==="file"&&item.type.startsWith("image/")).map(item=>item.getAsFile()).filter(Boolean);if(files.length){event.preventDefault();workspaceChooseAttachments(files);}});
+
+function workspaceShowPlaceholder(clearSavedThread = true) {
+  $("#wsPlaceholder").style.display = "flex";
+  $("#wsMessages").style.display = "none";
+  $("#wsMessages").innerHTML = "";
+  $("#wsInputArea").style.display = "none";
+  wsActiveThreadId = null;
+  if (clearSavedThread) {
+    localStorage.removeItem(workspaceThreadStorageKey());
+    if (!workspaceSelection().id) localStorage.removeItem("wsActiveThreadId");
+  }
+}
+
+async function workspaceSend() {
+  if (wsStreaming) return;
+  const content = $("#wsInput").value.trim();
+  if (!content && !wsPendingAttachments.length) return;
+  if (wsPendingAttachments.some(item=>item.uploading)) { toast("图片仍在上传，请稍候","error"); return; }
+  if (workspaceSelection().type === "workflow") {
+    await workspaceRunWorkflow(content);
+    return;
+  }
+  if (!wsActiveThreadId) { toast("请先选择或新建一个对话", "error"); return; }
+
+  wsStreaming = true;
+  const maxAgentIterations = currentAgentIterations();
+  $("#wsStopButton").style.display = "";
+  $("#wsConversationSelect").disabled = true;
+  $("#wsAgentIterations").disabled = true;
+  $("#wsInput").value = "";
+  $("#wsInput").disabled = true;
+
+  // 添加用户消息到界面
+  const outgoingAttachments=wsPendingAttachments.slice();
+  $("#wsMessages").innerHTML += workspaceMsgHTML({role:"user", content,attachments:outgoingAttachments});
+  $("#wsMessages").scrollTop = $("#wsMessages").scrollHeight;
+
+  // 不在 SSE 返回前创建气泡——等第一个 token 或 tool_call 到了再画
+  const aiBubbleId = "ws-" + Date.now();
+  const agentName = _wsAgents.find(a => a.id === workspaceSelection().id)?.name || "AI";
+  let bubbleCreated = false;
+  let thinkingShown = false;
+  let toolLogCount = 0;
+
+  function ensureBubble() {
+    if (bubbleCreated) return;
+    bubbleCreated = true;
+    // 用 join("") 拼成单行，避免模板字符串换行在 pre-wrap 下被渲染成多余空白
+    const html = [
+      `<div class="ws-msg assistant" id="${aiBubbleId}">`,
+      `<div class="ws-msg-label">${agentName}</div>`,
+      `<div class="ws-msg-bubble">`,
+      `<div class="ws-text"></div>`,
+      `<div class="thinking-slot"></div>`,
+      `<div class="tool-log" id="${aiBubbleId}-tool-log" style="display:none">`,
+      `<div class="tool-log-header" onclick="toggleToolLog('${aiBubbleId}')">`,
+      `<span class="arrow">▸</span>`,
+      `<span class="tl-count">已调用 0 个工具/技能</span>`,
+      `</div>`,
+      `<div class="tool-log-body"></div>`,
+      `</div>`,
+      `</div>`,
+      `</div>`,
+    ].join("");
+    $("#wsMessages").innerHTML += html;
+  }
+
+  function showThinking() {
+    ensureBubble();
+    if (thinkingShown) return;
+    thinkingShown = true;
+    const slot = document.querySelector(`#${aiBubbleId} .thinking-slot`);
+    slot.innerHTML = `<div class="thinking-msg" id="${aiBubbleId}-thinking"><span>正在思考</span><span class="thinking-spinner"></span></div>`;
+    $("#wsMessages").scrollTop = $("#wsMessages").scrollHeight;
+  }
+
+  function clearThinking() {
+    if (!thinkingShown) return;
+    thinkingShown = false;
+    const slot = document.querySelector(`#${aiBubbleId} .thinking-slot`);
+    if (slot) slot.innerHTML = "";
+  }
+
+  // 从工具参数里识别用到的 skill（如 skills/drawio-skill/... 或执行 skill 脚本）
+  function extractSkill(args) {
+    try {
+      const text = JSON.stringify(args || {});
+      const m = text.match(/skills[\\/]([a-z0-9_-]+)[\\/]/);
+      if (m) return m[1];
+      // 也识别以 skill 目录开头的路径参数
+      if (args && args.path && /(?:^|[\\/])skills[\\/]/.test(args.path)) {
+        const p = args.path.match(/skills[\\/]([a-z0-9_-]+)[\\/]/);
+        if (p) return p[1];
+      }
+    } catch(e) {}
+    return null;
+  }
+
+  // 从工具参数里提取一行可读摘要
+  function extractDetail(args) {
+    if (!args) return "";
+    if (args.path) return String(args.path);
+    if (args.command) return String(args.command).substring(0, 80);
+    if (args.pattern) return String(args.pattern);
+    if (args.old_string) return String(args.old_string).substring(0, 60);
+    try {
+      return JSON.stringify(args).substring(0, 80);
+    } catch(e) { return ""; }
+  }
+
+  function addToolLog(name, args) {
+    ensureBubble();
+    toolLogCount++;
+    const log = document.querySelector(`#${aiBubbleId}-tool-log`);
+    const skill = extractSkill(args);
+    const detail = extractDetail(args);
+    log.style.display = "";
+    log.querySelector(".tl-count").textContent = `已调用 ${toolLogCount} 个工具/技能`;
+    const item = document.createElement("div");
+    item.className = "tool-log-item";
+    item.innerHTML = `<span class="tl-name">🔧 ${esc(name)}</span>` +
+      (skill ? `<span class="tl-skill">[${esc(skill)}]</span>` : "") +
+      (detail ? `<span class="tl-detail">${esc(detail)}</span>` : "");
+    log.querySelector(".tool-log-body").appendChild(item);
+    $("#wsMessages").scrollTop = $("#wsMessages").scrollHeight;
+  }
+
+  function addSkillLog(name, summary) {
+    ensureBubble();
+    toolLogCount++;
+    const log = document.querySelector(`#${aiBubbleId}-tool-log`);
+    log.style.display = "";
+    log.querySelector(".tl-count").textContent = `已调用 ${toolLogCount} 个工具/技能`;
+    const item = document.createElement("div");
+    item.className = "tool-log-item";
+    item.innerHTML = `<span class="tl-name" style="color:var(--accent)">🧠 ${esc(name)}</span>` +
+      (summary ? `<span class="tl-detail">${esc(summary)}</span>` : "");
+    log.querySelector(".tool-log-body").appendChild(item);
+    $("#wsMessages").scrollTop = $("#wsMessages").scrollHeight;
+  }
+
+  // 发送后立即显示"正在思考"，直到第一个 token / 工具调用到来
+  showThinking();
+
+  try {
+    const res = await fetch(`/api/chat/threads/${wsActiveThreadId}/messages`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Permission-Mode": wsPermissionMode,
+      },
+      body: JSON.stringify({ content, attachment_ids:outgoingAttachments.map(item=>item.id), permission_mode: wsPermissionMode, max_agent_iterations: maxAgentIterations }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || "请求失败");
+    }
+    wsPendingAttachments=[]; renderWorkspaceAttachments();
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, {stream: true});
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        try {
+          const data = JSON.parse(line.slice(6));
+
+          if (data.event === "tool_call") {
+            clearThinking();
+            const d = data.data;
+            addToolLog(d.name, d.args);
+          }
+          else if (data.event === "skill") {
+            const d = data.data;
+            addSkillLog(d.name, d.summary || d.action || "");
+          }
+          else if (data.event === "tool_result") {
+            // 工具已执行完毕，回到"思考"状态等待下一步输出
+            showThinking();
+          }
+          else if (data.event === "ask_user") {
+            const d = data.data;
+            showAskUser(wsActiveThreadId, d.call_id, d.questions || []);
+          }
+          else if (data.event === "tool_confirm") {
+            const d = data.data;
+            // 显示确认弹窗
+            showToolConfirm(wsActiveThreadId, d.confirm_id, d.name, d.args, d.dangerous);
+          }
+          else if (data.event === "cancelled") {
+            clearThinking();
+            ensureBubble();
+            document.querySelector(`#${aiBubbleId} .ws-text`).textContent = data.data?.message || "Agent 对话已停止。";
+          }
+          else if (data.token) {
+            clearThinking();
+            ensureBubble();
+            const text = document.querySelector(`#${aiBubbleId} .ws-text`);
+            text.innerHTML += esc(data.token);
+            $("#wsMessages").scrollTop = $("#wsMessages").scrollHeight;
+          }
+          else if (data.done) {
+            clearThinking();
+          }
+          else if (data.error) {
+            clearThinking();
+            ensureBubble();
+            const text = document.querySelector(`#${aiBubbleId} .ws-text`);
+            text.innerHTML += `<br/>[错误: ${esc(data.error)}]`;
+          }
+        } catch(e) {}
+      }
+    }
+  } catch(e) {
+    clearThinking();
+    ensureBubble();
+    document.querySelector(`#${aiBubbleId} .ws-text`).textContent = `请求失败: ${esc(e.message)}`;
+  }
+
+  wsStreaming = false;
+  $("#wsStopButton").style.display = "none";
+  $("#wsConversationSelect").disabled = false;
+  $("#wsAgentIterations").disabled = false;
+  $("#wsInput").disabled = false;
+  $("#wsInput").focus();
+
+  // 刷新线程列表（更新标题和时间）
+  workspaceOnConversationChange();
+}
+window.workspaceSend = workspaceSend;
+
+const WORKFLOW_EVENT_LABELS = {
+  workflow_started:"工作流开始", node_started:"节点开始", node_output:"节点输出",
+  node_finished:"节点完成", agent_started:"Agent 输入", agent_token:"Agent 实时输出", agent_tool_call:"Agent 工具调用",
+  agent_tool_result:"Agent 工具输出", agent_skill_loaded:"Agent 加载 Skill", agent_output:"Agent 输出", tool_started:"工具输入",
+  tool_output:"工具输出", skill_started:"Skill 输入", skill_output:"Skill 输出", mcp_started:"MCP 输入", mcp_output:"MCP 输出",
+  child_workflow_started:"子工作流开始", child_workflow_output:"子工作流输出",
+  workflow_output:"工作流输出", run_output:"最终输出", run_cancelled:"已停止",
+  run_timeout:"运行超时", run_error:"运行错误", custom:"自定义事件",
+};
+
+async function workspaceRunWorkflow(content) {
+  const selection = workspaceSelection();
+  const workflow = _wsWorkflows.find(item => item.id === selection.id);
+  const timeoutSeconds = currentWorkflowTimeout();
+  const maxAgentIterations = currentWorkflowAgentIterations();
+  if (!workflow?.validation?.valid) { toast("工作流草稿未通过静态验证", "error"); return; }
+  if (!wsActiveWorkflowConversationId) await workspaceStartWorkflowConversation(content.slice(0, 24));
+  if (!wsActiveWorkflowConversationId) return;
+  const workflowThreadId = wsActiveWorkflowConversationId;
+  wsStreaming = true;
+  wsActiveWorkflowRunId = null;
+  $("#wsInput").value = "";
+  $("#wsInput").disabled = true;
+  $("#wsStopButton").style.display = "";
+  $("#wsConversationSelect").disabled = true;
+  $("#wsWorkflowTimeout").disabled = true;
+  $("#wsWorkflowAgentIterations").disabled = true;
+  $("#wsPlaceholder").style.display = "none";
+  $("#wsMessages").style.display = "block";
+  $("#wsMessages").innerHTML += workspaceMsgHTML({role:"user", content});
+  const bubbleId = "workflow-" + Date.now();
+  $("#wsMessages").innerHTML += `<div class="ws-msg assistant" id="${bubbleId}">
+    <div class="ws-msg-label">${esc(workflow.name)}</div>
+    <div class="ws-msg-bubble"><div class="ws-text"></div><details class="workflow-trace" open>
+      <summary>运行过程（<span class="trace-count">0</span> 条）</summary><div class="workflow-trace-body"></div>
+    </details></div>
+  </div>`;
+  const trace = document.querySelector(`#${bubbleId} .workflow-trace`);
+  const traceBody = trace.querySelector(".workflow-trace-body");
+  const traceCount = trace.querySelector(".trace-count");
+  const answer = document.querySelector(`#${bubbleId} .ws-text`);
+  const liveBubble = document.getElementById(bubbleId);
+  wsLiveWorkflowRuns.set(workflowThreadId, {
+    element: liveBubble,
+    workflowId: selection.id,
+  });
+  let eventCount = 0;
+  const activeAgentStreams = new Map();
+
+  function agentStreamKey(event) {
+    const data = event.data || {};
+    return `${event.run_id || "root"}:${data.agent_id || "agent"}`;
+  }
+
+  function appendAgentToken(event) {
+    const data = event.data || {};
+    const key = agentStreamKey(event);
+    let stream = activeAgentStreams.get(key);
+    if (!stream) {
+      const item = document.createElement("div");
+      item.className = "workflow-trace-item agent-stream";
+      item.innerHTML = `<span class="event-name">${esc(WORKFLOW_EVENT_LABELS.agent_token)}</span><span class="agent-stream-text"></span>`;
+      traceBody.appendChild(item);
+      stream = {item, text:""};
+      activeAgentStreams.set(key, stream);
+      eventCount++;
+      traceCount.textContent = eventCount;
+    }
+    stream.text += String(data.text || "");
+    stream.item.querySelector(".agent-stream-text").textContent = stream.text;
+    $("#wsMessages").scrollTop = $("#wsMessages").scrollHeight;
+  }
+
+  function finalizeAgentStream(event) {
+    const key = agentStreamKey(event);
+    const stream = activeAgentStreams.get(key);
+    if (!stream) return false;
+    const output = event.data?.output || {};
+    const finalText = typeof output.answer === "string"
+      ? output.answer
+      : JSON.stringify(output);
+    stream.item.classList.add("output");
+    stream.item.querySelector(".event-name").textContent = WORKFLOW_EVENT_LABELS.agent_output;
+    stream.item.querySelector(".agent-stream-text").textContent = finalText;
+    activeAgentStreams.delete(key);
+    return true;
+  }
+
+  function appendEvent(event) {
+    if (event.event === "agent_token") {
+      appendAgentToken(event);
+      return;
+    }
+    if (event.event === "agent_output" && finalizeAgentStream(event)) {
+      return;
+    }
+    const item = document.createElement("div");
+    const isError = ["run_error", "run_timeout", "run_cancelled"].includes(event.event);
+    const isOutput = ["node_output", "agent_output", "skill_output", "tool_output", "mcp_output", "child_workflow_output", "workflow_output", "run_output"].includes(event.event);
+    item.className = `workflow-trace-item${isError ? " error" : ""}${isOutput ? " output" : ""}`;
+    const data = event.data || {};
+    let detail = "";
+    if (event.event.startsWith("node_")) detail = `${data.node || ""} ${JSON.stringify(data.output ?? data.input ?? data.error ?? "")}`;
+    else detail = JSON.stringify(data);
+    item.innerHTML = `<span class="event-name">${esc(WORKFLOW_EVENT_LABELS[event.event] || event.event)}</span>${esc(detail)}`;
+    traceBody.appendChild(item);
+    eventCount++;
+    traceCount.textContent = eventCount;
+    if (event.event === "run_output") answer.textContent = data.answer || "";
+    if (event.event === "run_error") answer.textContent = `运行失败：${data.message || "未知错误"}`;
+    if (event.event === "run_cancelled") answer.textContent = data.message || "运行已停止";
+    if (["run_output", "run_error", "run_cancelled"].includes(event.event)) trace.removeAttribute("open");
+    $("#wsMessages").scrollTop = $("#wsMessages").scrollHeight;
+  }
+
+  try {
+    const response = await fetch(`/api/workflows/${selection.id}/runs`, {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({thread_id:wsActiveWorkflowConversationId, input:{message:content}, permission_mode:wsPermissionMode, recursion_limit:50, timeout_seconds:timeoutSeconds, max_agent_iterations:maxAgentIterations}),
+    });
+    if (!response.ok) throw new Error((await response.json()).detail || "工作流启动失败");
+    wsActiveWorkflowRunId = response.headers.get("X-Workflow-Run-Id");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, {stream:true});
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        try { appendEvent(JSON.parse(line.slice(6))); } catch(e) {}
+      }
+    }
+  } catch(error) {
+    appendEvent({event:"run_error", data:{message:error.message}});
+  } finally {
+    wsLiveWorkflowRuns.delete(workflowThreadId);
+    wsStreaming = false;
+    wsActiveWorkflowRunId = null;
+    $("#wsInput").disabled = false;
+    $("#wsStopButton").style.display = "none";
+    $("#wsConversationSelect").disabled = false;
+    $("#wsWorkflowTimeout").disabled = false;
+    $("#wsWorkflowAgentIterations").disabled = false;
+    $("#wsInput").focus();
+    try {
+      const response = await fetch(`/api/workflows/${selection.id}/threads`);
+      if (response.ok) {
+        wsThreads = await response.json();
+        workspaceRenderThreadList();
+      }
+    } catch(error) {}
+  }
+}
+
+async function workspaceStop() {
+  if (!wsStreaming) return;
+  const selection = workspaceSelection();
+  try {
+    if (selection.type === "workflow") {
+      if (!wsActiveWorkflowRunId) { toast("Worker 正在启动，请稍后再停止", "error"); return; }
+      await fetch(`/api/workflows/runs/${wsActiveWorkflowRunId}/cancel`, {method:"POST"});
+    } else if (wsActiveThreadId) {
+      await fetch(`/api/chat/threads/${wsActiveThreadId}/cancel`, {method:"POST"});
+    }
+    $("#wsStopButton").disabled = true;
+    setTimeout(() => { $("#wsStopButton").disabled = false; }, 1200);
+  } catch(error) { toast("停止失败：" + error.message, "error"); }
+}
+window.workspaceStop = workspaceStop;
+
+// 展开 / 收起工具调用折叠栏（供气泡内 onclick 调用）
+function toggleToolLog(bubbleId) {
+  const log = document.querySelector(`#${bubbleId}-tool-log`);
+  if (log) log.classList.toggle("open");
+}
+window.toggleToolLog = toggleToolLog;
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 初始化
+// ═════════════════════════════════════════════════════════════════════════════
+loadProfiles();
+loadAgents();
+</script>
+</body>
+</html>

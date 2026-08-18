@@ -1,0 +1,16 @@
+version: 1
+input:
+  city:
+    type: string
+    required: false
+platforms:
+  windows:
+    command: powershell
+    args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts/get_weather.ps1", "-City", "{city}"]
+  linux:
+    command: bash
+    args: ["scripts/get_weather.sh", "{city}"]
+  macos:
+    command: bash
+    args: ["scripts/get_weather.sh", "{city}"]
+timeout_seconds: 30

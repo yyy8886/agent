@@ -20,6 +20,8 @@ import re
 
 from dotenv import set_key
 
+from .runtime_paths import ENV_FILE
+
 from .api_profile import ApiProfile
 from .api_profile_repository import ApiProfileRepository
 
@@ -31,7 +33,7 @@ class ApiProfileService:
         env_path: Path | None = None,
     ):
         self.repository = repository or ApiProfileRepository()
-        self.env_path = env_path or Path(__file__).resolve().parent.parent / ".env"
+        self.env_path = env_path or ENV_FILE
 
     def list(self) -> list[dict]:
         return [self._public(profile) for profile in self.repository.list()]

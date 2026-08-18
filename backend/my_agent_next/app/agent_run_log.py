@@ -9,8 +9,10 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+from .runtime_paths import DATA_DIR
 
-DEFAULT_LOG_ROOT = Path(__file__).resolve().parent.parent / "data" / "agent-runs"
+
+DEFAULT_LOG_ROOT = DATA_DIR / "agent-runs"
 _SENSITIVE_KEY = re.compile(
     r"(api[_-]?key|authorization|password|secret|token|cookie)",
     re.IGNORECASE,

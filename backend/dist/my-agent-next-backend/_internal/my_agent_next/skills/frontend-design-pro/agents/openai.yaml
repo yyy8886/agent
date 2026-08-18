@@ -1,0 +1,5 @@
+interface:
+  display_name: "Frontend Design Pro"
+  short_description: "前端设计质量提升：audit/polish/critique UI"
+  brand_color: "#3B82F6"
+  default_prompt: "Use $frontend-design-pro to audit, polish, or critique frontend UI code with professional design standards"

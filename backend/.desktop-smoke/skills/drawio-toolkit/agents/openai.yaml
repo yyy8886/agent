@@ -1,0 +1,4 @@
+interface:
+  display_name: "Draw.io Toolkit"
+  short_description: "Process compressed drawio files and colorize nodes by type"
+  default_prompt: "Use drawio-toolkit to process drawio files that are compressed or need node-type-based coloring"

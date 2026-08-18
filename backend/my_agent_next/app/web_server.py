@@ -29,6 +29,8 @@ from pathlib import Path
 
 import yaml
 from dotenv import load_dotenv
+
+from .runtime_paths import CONFIG_FILE, ENV_FILE, PACKAGE_ROOT, initialize_runtime
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -41,13 +43,14 @@ from .mcp_api import router as mcp_router
 from .workflows.api import create_workflow_router
 
 # 项目根目录 = my_agent_next/
-project_dir = Path(__file__).resolve().parent.parent
+initialize_runtime()
+project_dir = PACKAGE_ROOT
 
 # 加载 my_agent_next/.env（API Key 在这里配置）
-load_dotenv(project_dir / ".env")
+load_dotenv(ENV_FILE)
 
 # 加载 my_agent_next/config.yaml（端口等设置在这里配置）
-with open(project_dir / "config.yaml", "r", encoding="utf-8") as f:
+with open(CONFIG_FILE, "r", encoding="utf-8") as f:
     _config = yaml.safe_load(f)
 
 app = FastAPI(title="My Agent Next — 管理中心")

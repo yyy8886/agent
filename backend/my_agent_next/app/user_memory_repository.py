@@ -14,7 +14,9 @@ from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 
-DEFAULT_DB = Path(__file__).resolve().parent.parent / "data" / "app.db"
+from .runtime_paths import DATA_DIR
+
+DEFAULT_DB = DATA_DIR / "app.db"
 
 
 @dataclass(slots=True)

@@ -1,0 +1,8 @@
+interface:
+  display_name: "Draw.io Diagrams"
+  short_description: "Create, edit, and export .drawio diagrams"
+  brand_color: "#F08705"
+  default_prompt: "Use $drawio-skill to create, edit, or export a .drawio diagram."
+
+policy:
+  allow_implicit_invocation: true

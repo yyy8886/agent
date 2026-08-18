@@ -6,10 +6,12 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
+from ..runtime_paths import DATA_DIR
+
 from .model import WorkflowDraft, WorkflowDraftDependency
 
 
-DEFAULT_DB = Path(__file__).resolve().parents[2] / "data" / "app.db"
+DEFAULT_DB = DATA_DIR / "app.db"
 
 
 class WorkflowRepository:

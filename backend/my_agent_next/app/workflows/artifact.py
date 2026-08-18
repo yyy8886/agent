@@ -8,11 +8,13 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..runtime_paths import DATA_DIR
+
 from .model import WorkflowDraft
 from .source_validation import validate_workflow_source
 
 
-DEFAULT_ARTIFACT_DIR = Path(__file__).resolve().parents[4] / ".workflow_artifacts"
+DEFAULT_ARTIFACT_DIR = DATA_DIR / "workflow-artifacts"
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "skills": [
+    {
+      "directory": "address-lookup",
+      "name": "address-lookup",
+      "description": "查询IP地址定位和地址地理编码。当用户需要查询某个IP地址的地理位置、获取本机公网IP位置，或将地址文本（如\"北京市朝阳区建国路88号\"）转换为经纬度坐标时使用此skill。",
+      "sha256": "6481a6daba42722a06584cc73541b24ffe50b27fd3def9a5b4694356349f440e"
+    },
+    {
+      "directory": "drawio-skill",
+      "name": "drawio-skill",
+      "description": "Use when the user requests diagrams, flowcharts, architecture diagrams, ER diagrams, UML / sequence / class diagrams, SysML / MBSE diagrams (block definition, internal block, requirement, parametric), BPMN business process diagrams, swimlane / cross-functional flowcharts, network topology, cloud architecture from Terraform or Kubernetes manifests, ML/DL model figures (Transformer/CNN/LSTM), mind maps, or any visualization. Also use proactively when explaining systems with 3+ components, complex data flows, or relationships that benefit from visual representation. Best suited when the diagram needs custom styling, rich shape vocabulary, swimlanes, or exportable images (PNG/SVG/PDF/JPG). Generates .drawio XML and exports locally via the native draw.io desktop CLI.",
+      "sha256": "6a3e71cbcfabe9d848e4c5e16f3b8062779bb9d9ecb682ee7bf9bf8e1bfef4b6"
+    },
+    {
+      "directory": "drawio-toolkit",
+      "name": "drawio-toolkit",
+      "description": "Process drawio files that are compressed (deflate/base64) or need node-type-based coloring. Decompress compressed .drawio pages to plain XML, compress plain XML back to draw.io's compact format, analyze diagram structure (pages, node types, color coverage), and colorize nodes by their label type (MUX/ICG/GATE/BUF etc). Use when a .drawio file cannot be read by other tools because pages are compressed, or when you need to visually distinguish node types in a large diagram.",
+      "sha256": "92c64518eede7253810787fa047e44f2a41139462e17133ec8e9c4f4d98449d3"
+    },
+    {
+      "directory": "environment-memory",
+      "name": "environment-memory",
+      "description": "Inspect and safely report this application's current runtime environment, including host and actual execution platform, shell, Python executable, normalized workspace paths, available commands, filesystem capabilities, and selected non-secret environment configuration. Use when diagnosing Windows/WSL/Linux compatibility, preparing deployment, debugging tool failures, or reading the operating environment or environment variables. Never expose secret values.",
+      "sha256": "4f8f5c143336c1a0b8689eee18fa00d99eb21932278d0d8dbcf0a1ed84c4abcc"
+    },
+    {
+      "directory": "frontend-design-pro",
+      "name": "frontend-design-pro",
+      "description": "前端设计质量提升 skill。让 AI 生成的 UI/前端代码更专业，避免常见设计反模式。 参考 impeccable 项目的设计语言规范，提供 audit/polish/critique 等设计审查命令。 触发词：/audit /polish /critique /colorize /animate /bolder /quieter /distill 以及：审查UI设计、优化界面、前端设计建议、让设计更好看、检查设计质量\n",
+      "sha256": "48d7090d58bcdfc5a9e4f8710d6bd7611d9dcc8548eb6b4e82966984c4a0a4fe"
+    },
+    {
+      "directory": "imagegen",
+      "name": "imagegen",
+      "description": "Generate or edit raster images when the task benefits from AI-created bitmap visuals such as photos, illustrations, textures, sprites, mockups, or transparent-background cutouts. Use when this application needs a new bitmap image, a transformed image, or image variants from references. Do not use when an existing SVG/vector icon set, logo system, or code-native asset is the better fit.",
+      "sha256": "9078154c41945a2087ec418b6494c62ce5dbad827fa8a8887baf1e9267db7760"
+    },
+    {
+      "directory": "meow-suffix",
+      "name": "meow-suffix",
+      "description": "让AI对话的每句话结尾都自动带上\"喵\"字，营造可爱亲切的交流风格。当用户要求说话带喵、使用喵语、或希望对话风格变得可爱时触发。",
+      "sha256": "72d0bee85e7d46fc669f40140ca81717fb21a96d7712e52f9f187954188aac2c"
+    },
+    {
+      "directory": "openai-docs",
+      "name": "openai-docs",
+      "description": "Use for Codex models/pricing, scheduled tasks, skills, settings, setup, troubleshooting, customization, automations, and self-knowledge—including 'you,' 'your,' 'this app,' or 'this coding agent' when they refer to Codex—and for OpenAI APIs/products and ChatGPT Work. Also use for model choice/migration, prompting, SDKs, Responses, Realtime, agents, evals, and Chat/Work/Codex comparisons. Do not use for generic app/software tasks that merely mention Codex.",
+      "sha256": "4371fcc6652d78309ccf5e7710a4fd22314ad7f1f4928a6c172ddae80c87cc87"
+    },
+    {
+      "directory": "plugin-creator",
+      "name": "plugin-creator",
+      "description": "Create and scaffold plugin directories for Codex with a required `.codex-plugin/plugin.json`, optional plugin folders/files, valid manifest defaults, and personal-marketplace entries by default. Use when Codex needs to create a new personal plugin, add optional plugin structure, generate or update marketplace entries for plugin ordering and availability metadata, or update an existing local plugin during development with the CLI-driven cachebuster and reinstall flow.",
+      "sha256": "40354d99ca66f16a8bd92b0e6b315b4cd773ebcb8a6348a70398a4b787b86213"
+    },
+    {
+      "directory": "review-agent",
+      "name": "review-agent",
+      "description": "Perform a read-only, defect-first review of a specified code change and return every actionable finding. Use when another agent delegates review of uncommitted changes, a base-branch diff, a commit, or custom review instructions.",
+      "sha256": "36d17fc7d403e6532a0c133359349fd36c052a6c909a46efacdb3f3bce770764"
+    },
+    {
+      "directory": "skill-creator",
+      "name": "skill-creator",
+      "description": "Create or update Skills for this application. Use when users want to add a specialized workflow, domain knowledge, bundled script, reference, or tool integration.",
+      "sha256": "b9ef225384bb8957c2646847c1422bb40dfd02107209b20708ec5b5bbf1f0df8"
+    },
+    {
+      "directory": "skill-installer",
+      "name": "skill-installer",
+      "description": "Install Skills into this application's `skills/` directory from a curated list or a GitHub repository path. Use when users ask to list or install Skills from the official OpenAI catalog or another repository.",
+      "sha256": "0eecbe5b7f12d0be8b54f4befa06a5e695f67648d738b41c5b1144f619ad013c"
+    },
+    {
+      "directory": "system-time",
+      "name": "system-time",
+      "description": "Use when the user asks for the current system time, date, timezone, or wants to query the local clock. Returns the current date and time in the local timezone, optionally with timezone information and a 24-hour format. Best suited for quick time and date lookups on the host machine.",
+      "sha256": "869e463ede144edecd2f4f7f4d07257291191ccbbc69b4c480232d4327b1300d"
+    },
+    {
+      "directory": "user-memory",
+      "name": "user-memory",
+      "description": "自动提取和记住用户信息（名字、偏好、习惯等）",
+      "sha256": "4c23062012d2db071eb902cba467ff0cc1023d2e1ab3c33623ca0dff145d365b"
+    },
+    {
+      "directory": "weather-skill",
+      "name": "weather-skill",
+      "description": "Query current weather conditions for any city using the free wttr.in API (no API key required). Use when the user asks about the weather, temperature, humidity, wind, or air quality for a specific city or location, such as \"北京天气\", \"今天上海天气怎么样\", \"what's the weather in Tokyo\". Automatically recognizes city names from natural language and returns temperature, weather condition, humidity, wind, and air quality. Best suited for quick weather lookups on the host machine.",
+      "sha256": "060bc8ea19b9b48ecc7cf5e8d732f32a669422e7256532e4de394389f83cbcd5"
+    }
+  ]
+}

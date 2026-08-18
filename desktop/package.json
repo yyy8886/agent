@@ -8,7 +8,9 @@
     "start": "electron .",
     "test": "node --test tests/*.test.js",
     "pack": "electron-builder --dir",
-    "dist": "electron-builder"
+    "build:backend:win": "powershell -NoProfile -ExecutionPolicy Bypass -File ../backend/scripts/build_windows_backend.ps1",
+    "dist": "electron-builder",
+    "dist:win": "npm run build:backend:win && electron-builder --win nsis"
   },
   "devDependencies": {
     "electron": "^37.0.0",
@@ -24,16 +26,10 @@
     ],
     "extraResources": [
       {
-        "from": "../backend",
+        "from": "../backend/dist/my-agent-next-backend",
         "to": "backend",
         "filter": [
-          "**/*",
-          "!**/.venv/**",
-          "!**/.venv-linux/**",
-          "!**/__pycache__/**",
-          "!**/*.pyc",
-          "!my_agent_next/.env",
-          "!my_agent_next/data/**"
+          "**/*"
         ]
       }
     ],

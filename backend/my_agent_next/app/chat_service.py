@@ -25,13 +25,14 @@ from .agent_runtime import run_agent_runtime
 from .agent_run_log import AgentRunLog, redact_sensitive
 from .agent_profile_repository import AgentProfileRepository
 from .agent_profile import SKILL_NAME_PATTERN
+from .runtime_paths import CONFIG_FILE, SKILLS_DIR
 from .api_profile_repository import ApiProfileRepository
 from .chat_repository import ChatRepository
 from .attachment_service import AttachmentService
 from .tools import ALL_TOOLS, TOOL_BY_NAME
 from .tools.base import PermissionMode, is_dangerous_command
 
-_config_path = Path(__file__).resolve().parent.parent / "config.yaml"
+_config_path = CONFIG_FILE
 with open(_config_path, "r", encoding="utf-8") as f:
     _chat_config = yaml.safe_load(f).get("chat", {})
 
@@ -91,7 +92,7 @@ def build_agent_context_messages(agent, user_content: str) -> tuple[list, list[s
     from my_agent_next.skills._loader import get as get_skill
     from my_agent_next.skills._router import SkillRouter, build_skill_catalog
 
-    skills_dir = Path(__file__).resolve().parent.parent / "skills"
+    skills_dir = SKILLS_DIR
     bound_skills = agent.skills or []
     catalog = build_skill_catalog(bound_skills)
     if catalog:

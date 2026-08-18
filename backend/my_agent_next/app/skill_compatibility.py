@@ -13,9 +13,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .agent_profile_repository import DEFAULT_DB
+from .runtime_paths import SKILLS_DIR
 
 SCANNER_VERSION = 4
-SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills"
 IGNORED_PARTS = {".git", "__pycache__", "node_modules", ".DS_Store"}
 TEXT_SUFFIXES = {".md", ".py", ".ps1", ".sh", ".bat", ".cmd", ".js", ".ts", ".json", ".yaml", ".yml", ".toml", ".txt"}
 COMMANDS = ("python", "python3", "node", "npm", "git", "drawio", "ffmpeg", "pwsh", "powershell", "bash", "curl")

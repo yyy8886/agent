@@ -14,6 +14,8 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+
+from ..runtime_paths import SKILLS_DIR
 from types import ModuleType
 from typing import Any
 
@@ -44,7 +46,6 @@ from .contract import (
 MAX_CHILD_DEPTH = 8
 MAX_EVENT_VALUE_CHARS = 20_000
 SENSITIVE_KEY_PARTS = ("api_key", "apikey", "authorization", "cookie", "password", "secret", "token")
-SKILLS_DIR = Path(__file__).resolve().parents[2] / "skills"
 
 
 @dataclass(frozen=True, slots=True)

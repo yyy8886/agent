@@ -22,6 +22,11 @@ function pythonCandidates(backendDir, platform = process.platform) {
   return configured ? [configured, ...candidates] : candidates;
 }
 
+function packagedBackendExecutable(backendDir, platform = process.platform) {
+  const name = platform === "win32" ? "my-agent-next-backend.exe" : "my-agent-next-backend";
+  return path.join(backendDir, name);
+}
+
 function selectPython(backendDir, platform = process.platform) {
   for (const candidate of pythonCandidates(backendDir, platform)) {
     if (!path.isAbsolute(candidate) || fs.existsSync(candidate)) return candidate;
@@ -58,15 +63,28 @@ async function waitForServer(url, child, timeoutMs = 30000) {
 
 async function startBackend(app, onLog = () => {}) {
   const cwd = backendDirectory(app);
-  const python = selectPython(cwd);
   const port = await availablePort();
   const url = `http://127.0.0.1:${port}`;
-  const child = spawn(python, [
-    "-m", "uvicorn", "my_agent_next.app.web_server:app",
-    "--host", "127.0.0.1", "--port", String(port),
-  ], {
+  const packagedExecutable = packagedBackendExecutable(cwd);
+  const executable = app.isPackaged ? packagedExecutable : selectPython(cwd);
+  if (app.isPackaged && !fs.existsSync(packagedExecutable)) {
+    throw new Error(`安装包缺少内置后端：${packagedExecutable}`);
+  }
+  const args = app.isPackaged
+    ? []
+    : ["-m", "uvicorn", "my_agent_next.app.web_server:app", "--host", "127.0.0.1", "--port", String(port)];
+  const runtimeHome = path.join(app.getPath("userData"), "backend");
+  fs.mkdirSync(runtimeHome, { recursive: true });
+  const child = spawn(executable, args, {
     cwd,
-    env: { ...process.env, MY_AGENT_DESKTOP: "1", PYTHONUNBUFFERED: "1" },
+    env: {
+      ...process.env,
+      MY_AGENT_DESKTOP: "1",
+      MY_AGENT_HOME: runtimeHome,
+      MY_AGENT_HOST: "127.0.0.1",
+      MY_AGENT_PORT: String(port),
+      PYTHONUNBUFFERED: "1",
+    },
     detached: process.platform !== "win32",
     windowsHide: true,
     stdio: ["ignore", "pipe", "pipe"],
@@ -74,17 +92,14 @@ async function startBackend(app, onLog = () => {}) {
   child.stdout.on("data", (data) => onLog(data.toString()));
   child.stderr.on("data", (data) => onLog(data.toString()));
   child.on("error", (error) => onLog(`${error.message}\n`));
-  await waitForServer(url, child);
-  return { child, url, port, python, cwd };
+  await waitForServer(url, child, app.isPackaged ? 120000 : 30000);
+  return { child, url, port, executable, cwd, runtimeHome };
 }
 
 function stopBackend(child) {
   if (!child || child.exitCode !== null) return;
   if (process.platform === "win32") {
-    spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
-      windowsHide: true,
-      stdio: "ignore",
-    });
+    spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
   } else {
     try {
       process.kill(-child.pid, "SIGTERM");
@@ -97,6 +112,7 @@ function stopBackend(child) {
 module.exports = {
   availablePort,
   backendDirectory,
+  packagedBackendExecutable,
   pythonCandidates,
   selectPython,
   startBackend,

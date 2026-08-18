@@ -20,10 +20,12 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
+from .runtime_paths import DATA_DIR
+
 from .api_profile import ApiProfile
 
 
-DEFAULT_DB = Path(__file__).resolve().parent.parent / "data" / "app.db"
+DEFAULT_DB = DATA_DIR / "app.db"
 
 
 class ApiProfileRepository:

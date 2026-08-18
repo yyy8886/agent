@@ -1,0 +1,4 @@
+interface:
+  display_name: "地址查询"
+  short_description: "查询IP地址定位和地址地理编码，支持IP定位和地址转坐标"
+  default_prompt: "帮我查询这个地址或IP的位置信息"

@@ -2,6 +2,7 @@
 
 import tempfile
 import unittest
+from unittest.mock import patch
 from html.parser import HTMLParser
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,7 +10,7 @@ from types import SimpleNamespace
 from my_agent_next.app.agent_profile import AgentProfile
 from my_agent_next.app.agent_profile_repository import AgentProfileRepository
 from my_agent_next.app.mcp_repository import McpServerRepository
-from my_agent_next.app.mcp_service import McpService, invoke_mcp_tool
+from my_agent_next.app.mcp_service import McpService, _resolve_portable_path, invoke_mcp_tool
 from my_agent_next.app.workflows.worker import EventEmitter, WorkerGateway, WorkerSpec
 from my_agent_next.app.workflows.visual import compile_visual_graph
 
@@ -115,6 +116,16 @@ class McpIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
 
 class McpUiContractTests(unittest.TestCase):
+    def test_relative_mcp_path_uses_runtime_root_and_absolute_path_is_preserved(self):
+        with tempfile.TemporaryDirectory() as runtime:
+            with patch.dict("os.environ", {"MY_AGENT_HOME": runtime}, clear=True):
+                self.assertEqual(
+                    _resolve_portable_path("mcp/server.py"),
+                    (Path(runtime) / "mcp" / "server.py").resolve(),
+                )
+                absolute = (Path(runtime) / "external" / "server.py").resolve()
+                self.assertEqual(_resolve_portable_path(str(absolute)), absolute)
+
     def test_mcp_navigation_and_visual_node_are_present(self):
         source = (
             Path(__file__).resolve().parents[1] / "app" / "static" / "index.html"

@@ -158,8 +158,14 @@ class McpService:
 
 
 def _resolve_portable_path(value: str) -> Path:
-    path = Path(value)
-    return path.resolve() if path.is_absolute() else (BACKEND_ROOT / path).resolve()
+    path = Path(value).expanduser()
+    return path.resolve() if path.is_absolute() else (_mcp_path_base() / path).resolve()
+
+
+def _mcp_path_base() -> Path:
+    """Resolve relative MCP paths without storing platform-specific locations."""
+    configured = os.environ.get("MY_AGENT_MCP_ROOT") or os.environ.get("MY_AGENT_HOME")
+    return Path(configured).expanduser().resolve() if configured else BACKEND_ROOT
 
 
 def _looks_like_relative_file(value: str) -> bool:

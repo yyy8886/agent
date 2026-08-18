@@ -9,6 +9,8 @@ services:
       - "19845:19845"
     env_file:
       - ./my_agent_next/.env
+    environment:
+      MY_AGENT_MCP_ROOT: /app
     volumes:
       - ./my_agent_next/data:/app/my_agent_next/data
       - ./my_agent_next/skills:/app/my_agent_next/skills

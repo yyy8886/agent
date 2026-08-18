@@ -849,7 +849,7 @@ graph.add_conditional_edges(
         <div class="form-row"><div class="form-group"><label>ID</label><input id="mcpFormId" required placeholder="l6_time"></div><div class="form-group"><label>名称</label><input id="mcpFormName" required placeholder="L6 Time Server"></div></div>
         <div class="form-row"><div class="form-group"><label>传输方式</label><select id="mcpFormTransport"><option value="stdio">stdio</option></select></div><div class="form-group"><label>启动命令</label><input id="mcpFormCommand" required value="python"></div></div>
         <div class="form-group"><label>参数 JSON</label><textarea id="mcpFormArgs" rows="3">[]</textarea></div>
-        <div class="form-group"><label>工作目录（相对 backend）</label><input id="mcpFormCwd" value="."></div>
+        <div class="form-group"><label>工作目录（支持绝对路径；相对路径按当前运行环境解析）</label><input id="mcpFormCwd" value="." placeholder="例如 mcp/weather 或 D:\\Tools\\weather-mcp"></div>
         <div class="form-group"><label>环境变量名（每行一个，不保存真实值）</label><textarea id="mcpFormEnv" rows="2"></textarea></div>
         <div class="form-group"><label>绑定 Agent</label><div id="mcpAgentBindings" class="skill-checkboxes"></div></div>
         <label class="check-label"><input type="checkbox" id="mcpFormEnabled" checked> 启用</label>

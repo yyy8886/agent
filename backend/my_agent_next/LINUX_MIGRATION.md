@@ -238,3 +238,79 @@ uvicorn my_agent_next.app.web_server:app --host 127.0.0.1 --port 19846
 - [ ] `bash scripts/linux_smoke_test.sh` 通过
 - [ ] 正式服务可以访问 `/api/health`
 - [ ] 已确认端口、防火墙和日志策略
+
+## 14. 使用 Docker 部署（推荐）
+
+Windows + WSL2 环境推荐安装 Docker Desktop，并在 Docker Desktop 的
+`Settings -> Resources -> WSL integration` 中开启 Ubuntu。验证安装：
+
+```bash
+docker --version
+docker compose version
+docker run --rm hello-world
+```
+
+看到 `Hello from Docker!` 表示 Docker Desktop、WSL 和 Linux 容器通信正常。
+
+项目已经提供：
+
+```text
+backend/Dockerfile
+backend/.dockerignore
+backend/docker-compose.yml
+```
+
+在 `backend` 目录构建并启动：
+
+```bash
+docker compose up --build -d
+```
+
+检查容器状态：
+
+```bash
+docker compose ps
+curl http://127.0.0.1:19845/api/health
+```
+
+状态应显示 `healthy`，健康接口应返回：
+
+```json
+{"status":"ok"}
+```
+
+查看实时日志：
+
+```bash
+docker compose logs -f backend
+```
+
+停止并删除容器（不会删除宿主机持久化数据）：
+
+```bash
+docker compose down
+```
+
+代码或依赖变化后重新构建：
+
+```bash
+docker compose up --build -d
+```
+
+Compose 会把宿主机的以下目录挂载到容器：
+
+```text
+my_agent_next/data    -> 数据库、附件和运行日志
+my_agent_next/skills  -> 已安装和创建的 Skill
+my_agent_next/.env    -> 模型 API 密钥
+```
+
+因此重建或删除容器不会清空这些持久化内容。不要执行会主动删除宿主机目录的命令，也不要把 `.env` 提交到 Git。
+
+容器中的 `127.0.0.1` 指向容器自身。连接 Windows 或 Linux 宿主机上的 Ollama 时，模型配置中的 Base URL 应使用：
+
+```text
+http://host.docker.internal:11434
+```
+
+同时确保宿主机 Ollama 允许来自 Docker 网络的连接。Electron 仍然作为桌面外壳单独运行，不打包进后端容器。

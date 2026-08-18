@@ -1,0 +1,27 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: my-agent-next-backend
+    restart: unless-stopped
+    ports:
+      - "19845:19845"
+    env_file:
+      - ./my_agent_next/.env
+    volumes:
+      - ./my_agent_next/data:/app/my_agent_next/data
+      - ./my_agent_next/skills:/app/my_agent_next/skills
+      - ./my_agent_next/.env:/app/my_agent_next/.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:19845/api/health', timeout=5)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
